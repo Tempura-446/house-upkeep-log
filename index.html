@@ -25,21 +25,22 @@
         <h1>House Upkeep Log</h1>
       </div>
       <div class="top-actions">
-        <button class="btn" id="backupBtn">Backup</button>
+        <button class="btn" id="settingsBtn">Settings</button>
         <button class="btn primary" id="addBtn">+ Add task</button>
       </div>
     </header>
 
-    <div class="tally" aria-label="Task status summary">
+    <div class="tally" aria-label="Task status summary" hidden>
       <div class="t-late"><b id="nLate">0</b><span>overdue</span></div>
-      <div class="t-soon"><b id="nSoon">0</b><span>due in 2 weeks</span></div>
+      <div class="t-soon"><b id="nSoon">0</b><span>coming up</span></div>
       <div class="t-ok"><b id="nOk">0</b><span>on track</span></div>
     </div>
 
     <div class="bar">
       <div class="tabs" role="group" aria-label="View">
-        <button id="tabTasks" aria-pressed="true">Tasks</button>
-        <button id="tabHist" aria-pressed="false">History</button>
+        <button data-view="tasks" aria-pressed="true">Tasks</button>
+        <button data-view="history" aria-pressed="false">History</button>
+        <button data-view="home" aria-pressed="false">Home info</button>
       </div>
       <div class="chips" id="areaChips" role="group" aria-label="Filter by area"></div>
     </div>

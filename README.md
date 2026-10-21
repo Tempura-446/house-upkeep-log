@@ -1,10 +1,20 @@
 # House Upkeep Log
 
-An installable web app for tracking recurring home maintenance: filters, detectors, gutters, water heater and the rest. It shows what's overdue, what's coming up in the next two weeks, and keeps a history of when you did each job.
+An installable web app for tracking recurring home maintenance: filters, detectors, gutters, water heater and the rest. It shows what's overdue and what's coming up, and keeps a history of every job with its cost and receipts.
 
-- Works offline and installs to your phone's home screen (it's a Progressive Web App).
-- No build step and no dependencies: plain HTML, CSS and JavaScript modules.
-- Tasks are saved in the browser on your device. Use **Backup** to download a copy or move your log to another device.
+**Features**
+
+- Tasks that repeat on an interval (every 3 months) or once a year in a set month (shut off outdoor faucets in October)
+- One-tap **Done**, or log a job on any date with a cost, notes and receipt photos or PDFs
+- Snooze a task for a week
+- **Add to calendar**: exports tasks as repeating calendar events with a 9 am alert
+- **History** grouped by year with total spending
+- **Home info**: filter sizes, model numbers, contacts and warranty dates (with a warning before they run out)
+- Backup and restore, including receipts
+- Works offline and installs to your phone's home screen (it's a Progressive Web App)
+- No build step and no dependencies: plain HTML, CSS and JavaScript modules
+
+Everything is saved in the browser on your device (tasks in localStorage, receipt files in IndexedDB). Use **Settings → Download backup** now and then, and to move your log to another device.
 
 ## Run it locally
 
@@ -35,25 +45,34 @@ One-time setup: in the repo go to **Settings → Pages** and set **Source** to *
 ```
 index.html            App shell
 css/styles.css        All styles (light and dark themes)
-js/app.js             UI: rendering, forms, backup
-js/schedule.js        Date math and due-status logic (pure, unit tested)
-js/store.js           Saving to the device, backup import/export
-js/starters.js        The list of common chores offered to new users
+js/app.js             Screens: Tasks, History, Home info; click wiring
+js/task-sheets.js     Task details, log a job (cost + receipts), add/edit task, starter list, calendar export
+js/other-sheets.js    Home info form and Settings (calendar, backup, storage, currency)
+js/state.js           In-memory data and saving
+js/schedule.js        Date math, seasonal schedules, snooze, due status (pure, unit tested)
+js/store.js           Data format, migration from v1, backup import/export (pure, unit tested)
+js/ics.js             Calendar (.ics) file builder (pure, unit tested)
+js/files.js           Receipt storage in IndexedDB, photo shrinking, storage protection
+js/ui.js              Sheets, toasts, small DOM helpers
+js/starters.js        Common chores and Home info suggestions
 sw.js                 Service worker for offline use
 manifest.webmanifest  Install metadata and icons
 tests/                Node test runner tests
 ```
 
+## Data format
+
+Version 2 stores each task's completed jobs in a `log`: `[{ id, date, cost, note, files }]`. "Last done" is the newest job date. Version 1 data (`history` + `lastDone`) is migrated automatically on load and when restoring an old backup.
+
 ## Making changes
 
-- **Shipping an update:** bump `VERSION` in `sw.js` whenever you change app files, so installed copies pick up the new version.
+- **Shipping an update:** bump `VERSION` in `sw.js` whenever you change app files, and add any new file to its `SHELL` list, so installed copies pick up the new version.
 - **Adding a common chore:** add a line to `js/starters.js`.
 - **Changing what counts as "coming up":** `SOON_DAYS` in `js/schedule.js`.
 
 ## Ideas for next steps
 
-- Reminders (push notifications or a calendar feed)
+- Push notifications (needs a small server)
 - Sync across devices with an account (for example Supabase or Firebase)
-- Seasonal tasks tied to a month instead of an interval
-- Costs, receipts and photos per job
-- Multiple homes or rooms
+- Multiple homes
+- Export spending to a spreadsheet

@@ -1,6 +1,6 @@
 // Offline support: cache the app shell, serve it cache-first, refresh in the background.
 // Bump VERSION whenever you change any file in SHELL so phones pick up the new version.
-const VERSION = "v1";
+const VERSION = "v2";
 const CACHE = `house-upkeep-${VERSION}`;
 const SHELL = [
   "./",
@@ -10,6 +10,12 @@ const SHELL = [
   "js/schedule.js",
   "js/store.js",
   "js/starters.js",
+  "js/state.js",
+  "js/ui.js",
+  "js/files.js",
+  "js/ics.js",
+  "js/task-sheets.js",
+  "js/other-sheets.js",
   "manifest.webmanifest",
   "icons/icon.svg",
   "icons/icon-192.png",
@@ -17,7 +23,9 @@ const SHELL = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: "reload" skips the browser's HTTP cache so a new version never precaches old files.
+  const fresh = SHELL.map((url) => new Request(url, { cache: "reload" }));
+  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(fresh)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (event) => {
