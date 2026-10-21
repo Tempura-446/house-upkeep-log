@@ -18,7 +18,7 @@ export function openSheet(html, onMount, { onClose } = {}) {
   const host = $("#sheetHost");
   const scrim = document.createElement("div");
   scrim.className = "scrim";
-  scrim.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">${html}</div>`;
+  scrim.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><span class="grabber" aria-hidden="true"></span><div class="sheet-body">${html}</div></div>`;
   host.append(scrim);
   const entry = { scrim, onClose };
   stack.push(entry);

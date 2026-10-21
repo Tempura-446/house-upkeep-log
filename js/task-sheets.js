@@ -9,6 +9,7 @@ import { state, putTask, removeTask, onChange, commit } from "./state.js";
 import { addFile, deleteFile, fileURL, getFile } from "./files.js";
 import { buildCalendar } from "./ics.js";
 import { $, $$, esc, money, plural, openSheet, closeSheet, armButton, toast, download } from "./ui.js";
+import { icon, areaIcon } from "./icons.js";
 
 const cur = () => state.settings.currency;
 
@@ -80,18 +81,24 @@ export function openTaskDetail(id) {
     const s = statusOf(t);
     const jobs = [...t.log].reverse();
     const spent = t.log.reduce((n, e) => n + (e.cost || 0), 0);
-    sheet.innerHTML = `<div class="sheet-form">
+    $(".sheet-body", sheet).innerHTML = `<div class="sheet-form">
       <div class="detail-head">
-        <h3>${esc(t.name)}</h3>
-        <div class="meta"><span>${esc(t.area)}</span><span>${esc(describeSchedule(t))}</span>${s.snoozed ? "<span>snoozed</span>" : ""}</div>
-        <span class="due ${s.key}">${esc(s.label)}</span>
+        <span class="area-badge lg" data-area="${esc(t.area)}">${areaIcon(t.area)}</span>
+        <div class="detail-title">
+          <h3>${esc(t.name)}</h3>
+          <div class="meta"><span>${esc(t.area)}</span><span>${esc(describeSchedule(t))}</span>${s.snoozed ? "<span>snoozed</span>" : ""}</div>
+        </div>
+      </div>
+      <div class="detail-status" data-status="${s.key}">
+        <span class="due ${s.key}">${esc(s.key === "new" ? "No date yet" : s.label)}</span>
+        <span class="muted">${t.log.length ? `Last done ${esc(formatShort(t.log.at(-1).date))}` : "Never logged"}</span>
       </div>
       ${t.notes ? `<p class="notes-block">${esc(t.notes)}</p>` : ""}
       <div class="action-grid">
-        <button type="button" class="btn primary" data-do="log">Log a job</button>
-        <button type="button" class="btn" data-do="snooze" ${s.key === "new" ? "disabled" : ""}>Snooze a week</button>
-        <button type="button" class="btn" data-do="cal" ${s.key === "new" ? "disabled" : ""}>Add to calendar</button>
-        <button type="button" class="btn" data-do="edit">Edit task</button>
+        <button type="button" class="tile primary" data-do="log">${icon.check}<span>Log a job</span></button>
+        <button type="button" class="tile" data-do="snooze" ${s.key === "new" ? "disabled" : ""}>${icon.snooze}<span>Snooze a week</span></button>
+        <button type="button" class="tile" data-do="cal" ${s.key === "new" ? "disabled" : ""}>${icon.calendar}<span>Add to calendar</span></button>
+        <button type="button" class="tile" data-do="edit">${icon.edit}<span>Edit task</span></button>
       </div>
       <div class="field">
         <span class="label">Job history${spent ? ` · ${money(spent, cur())} total` : ""}</span>
@@ -156,7 +163,7 @@ export function openJobSheet(taskId, entryId = null, { prompt } = {}) {
       <div class="field">
         <span class="label">Receipts</span>
         <div class="thumbs" id="jThumbs"></div>
-        <label class="btn add-receipt" for="jFile">+ Add photo or PDF</label>
+        <label class="add-receipt" for="jFile">${icon.camera}<span>Add photo or PDF</span></label>
         <input id="jFile" type="file" accept="image/*,application/pdf" multiple hidden>
         <span class="help" id="jFileStatus" aria-live="polite"></span>
       </div>
@@ -323,7 +330,7 @@ export function openStarterSheet() {
       <p class="help">Pick the ones that apply to your home. Seasonal ones are scheduled right away; for the rest you'll set when you last did them.</p>
       <div class="checklist">${items
         .map(
-          (i, n) => `<label class="check"><input type="checkbox" value="${esc(i.name)}" ${n < 10 ? "checked" : ""}>
+          (i, n) => `<label class="check-row"><input type="checkbox" value="${esc(i.name)}" ${n < 10 ? "checked" : ""}>
           <span><b>${esc(i.name)}</b><small>${esc(i.area)} · ${esc(describeSchedule(i))}</small></span></label>`
         )
         .join("")}</div>
