@@ -1,3 +1,6 @@
 node_modules/
 .DS_Store
 *.log
+
+# Personal backups exported from the app contain your tasks: never commit them
+house-upkeep-backup-*.json
