@@ -1,0 +1,15 @@
+{
+  "name": "House Upkeep Log",
+  "short_name": "Upkeep",
+  "description": "Track recurring home maintenance chores and see what's due.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#EEF0EC",
+  "theme_color": "#2D5E86",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

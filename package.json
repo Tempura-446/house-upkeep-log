@@ -1,0 +1,14 @@
+{
+  "name": "house-upkeep-log",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Installable web app for tracking recurring home maintenance chores.",
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
