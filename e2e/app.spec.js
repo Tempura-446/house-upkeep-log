@@ -43,7 +43,7 @@ const sampleData = () => ({
     { id: "t3", homeId: "home", name: "Clean refrigerator coils", area: "Appliances", schedule: "interval", intervalDays: 182, log: [] },
   ],
   home: [{ id: "h1", homeId: "home", title: "Water heater", details: "Rheem 50 gal" }],
-  local: { currentHomeId: "home", firstUseAt: Date.now(), lastBackupAt: Date.now() },
+  local: { currentHomeId: "home", firstUseAt: Date.now(), lastBackupAt: Date.now(), swipeHintSeen: true },
 });
 
 test("first run: pick common tasks, then set a start date", async ({ page }) => {
@@ -227,4 +227,59 @@ test("no sideways scrolling on a small phone, in light and dark", async ({ page 
       expect(overflow, `${view} in ${scheme}`).toBeLessThanOrEqual(0);
     }
   }
+});
+
+/** Drag a row horizontally with the mouse (pointer events work the same for touch). */
+async function swipe(page, rowText, dx) {
+  const li = page.locator(".swipe", { hasText: rowText });
+  await li.evaluate((el) => el.scrollIntoView({ block: "center" })); // keep clear of the + button and tab bar
+  await page.waitForTimeout(100);
+  const box = await li.boundingBox();
+  const y = box.y + box.height / 2;
+  const x = box.x + box.width * (dx > 0 ? 0.2 : 0.8); // start near one edge so the whole drag stays on screen
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) await page.mouse.move(x + (dx * i) / 8, y + i * 0.5);
+  await page.mouse.up();
+}
+
+test("swipe right marks a task done, swipe left snoozes it, short swipes do nothing", async ({ page }) => {
+  await seed(page, sampleData());
+  await page.goto("/");
+  await expect(page.locator(".stat[data-status=late] b")).toHaveText("1");
+
+  await swipe(page, "Clean gutters", 60); // not far enough
+  await expect(page.locator(".toast")).toHaveCount(0);
+  await expect(page.locator(".sheet")).toHaveCount(0); // and no click on the row
+  await expect(page.locator(".stat[data-status=late] b")).toHaveText("1");
+
+  await swipe(page, "Clean gutters", 260);
+  await expect(page.locator(".toast")).toContainText("Logged “Clean gutters”");
+  await expect(page.locator(".stat[data-status=late] b")).toHaveText("0");
+
+  await swipe(page, "Replace HVAC air filter", -260);
+  await expect(page.locator(".toast")).toContainText("Snoozed “Replace HVAC air filter”");
+  await expect(page.locator(".swipe", { hasText: "Replace HVAC air filter" })).toContainText("snoozed");
+  await page.locator(".toast").getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".swipe", { hasText: "Replace HVAC air filter" })).not.toContainText("snoozed");
+});
+
+test("swiping a task without a date asks for the date instead", async ({ page }) => {
+  await seed(page, sampleData());
+  await page.goto("/");
+  await swipe(page, "Clean refrigerator coils", 260);
+  await expect(page.getByRole("heading", { name: "When did you last do this?" })).toBeVisible();
+  await swipe(page, "Clean refrigerator coils", -260).catch(() => {}); // covered by the sheet; nothing should break
+});
+
+test("the swipe tip shows once and can be dismissed", async ({ page }) => {
+  const data = sampleData();
+  data.local.swipeHintSeen = false;
+  await seed(page, data);
+  await page.goto("/");
+  await expect(page.locator(".swipe-tip")).toBeVisible();
+  await page.locator(".swipe-tip").getByRole("button", { name: "Got it" }).click();
+  await expect(page.locator(".swipe-tip")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator(".swipe-tip")).toHaveCount(0);
 });

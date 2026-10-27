@@ -5,7 +5,7 @@ An installable web app for tracking recurring home maintenance: filters, detecto
 **Features**
 
 - Tasks that repeat on an interval (every 3 months) or once a year in a set month (shut off outdoor faucets in October)
-- One-tap **Done**, or log a job on any date with a cost, notes and receipt photos or PDFs
+- One-tap **Done** or **swipe right** to finish a task (swipe left to snooze a week), or log a job on any date with a cost, notes and receipt photos or PDFs
 - Snooze for a day, a week, a month or until a date
 - Search tasks, history and Home info
 - Several homes (a rental, a cabin, a parent's place), each with its own tasks
@@ -62,6 +62,7 @@ js/files.js           Receipt storage in IndexedDB, photo shrinking, storage pro
 js/ui.js              Sheets, toasts, share/download, small DOM helpers
 js/attachments.js     Photo/PDF picker, thumbnails and viewer for jobs and Home info
 js/icons.js           Inline line icons
+js/swipe.js           Swipe gestures, the one-time swipe hint and confetti
 js/cloud.js           Cloud sync and push notifications (optional)
 e2e/                  Playwright screen tests
 js/starters.js        Common chores and Home info suggestions

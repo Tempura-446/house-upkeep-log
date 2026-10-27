@@ -176,9 +176,10 @@ h1 { margin: 0; font-size: clamp(30px, 8vw, 36px); font-weight: 800; letter-spac
 .hint { margin: -2px 4px 2px; font-size: 14px; color: var(--muted); }
 .list { list-style: none; margin: 0; padding: 0; background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); overflow: hidden; }
 .list > li { position: relative; }
-.list > li + li::before { content: ""; position: absolute; top: 0; left: 56px; right: 0; height: 1px; background: var(--line); }
+.list > li + li::before { content: ""; position: absolute; top: 0; left: 56px; right: 0; height: 1px; background: var(--line); z-index: 2; }
 
 .row {
+  position: relative; z-index: 1; background: var(--surface);
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "check main due";
   gap: 4px 12px; align-items: center; padding: 12px 14px; min-height: 68px;
   transition: opacity .3s, transform .3s;
@@ -553,3 +554,209 @@ body:has(.scrim) .toast { bottom: auto; top: calc(var(--safe-t) + 12px); }
 .cloud-box .field input { background: var(--surface); }
 .cloud-box .segmented { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
 .cloud-actions { align-items: center; }
+
+/* ---------- swipe gestures ---------- */
+.swipe { position: relative; overflow: hidden; touch-action: pan-y; }
+.swipe-bg {
+  position: absolute; inset: 0; display: flex; justify-content: space-between; align-items: center;
+  padding: 0 22px; font-weight: 800; font-size: 15px; color: #fff;
+  background: var(--surface-2); opacity: 0; transition: background-color .15s;
+}
+.swipe.swiping .swipe-bg, .swipe.leaving .swipe-bg, .swipe.hinting .swipe-bg { opacity: 1; }
+.swipe[data-dir="right"] .swipe-bg { background: color-mix(in srgb, var(--ok) 55%, var(--surface)); }
+.swipe[data-dir="left"] .swipe-bg { background: color-mix(in srgb, var(--soon) 60%, var(--surface)); }
+.swipe[data-dir="right"].armed .swipe-bg, .swipe.leaving-right .swipe-bg { background: var(--ok); }
+.swipe[data-dir="left"].armed .swipe-bg, .swipe.leaving-left .swipe-bg { background: var(--soon); }
+.sw { display: flex; align-items: center; gap: 8px; transition: transform .18s cubic-bezier(.2,1.6,.4,1); }
+.sw .ic { width: 24px; height: 24px; stroke-width: 2.6; }
+.swipe[data-dir="right"] .sw-left, .swipe[data-dir="left"] .sw-right, .swipe:not([data-dir]) .sw { visibility: hidden; }
+.swipe.armed .sw { transform: scale(1.12); }
+.swipe.swiping .row { transition: none; cursor: grabbing; }
+.swipe.swiping { user-select: none; -webkit-user-select: none; }
+.swipe.leaving { pointer-events: none; }
+@media (prefers-color-scheme: dark) { .swipe-bg { color: #0C0E12; } }
+
+.swipe-tip {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--accent-soft); color: var(--ink); border-radius: var(--r); padding: 10px 14px; font-size: 14px;
+}
+.swipe-tip .link { flex: none; }
+
+/* ---------- confetti ---------- */
+.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 60; overflow: hidden; }
+.confetti span { position: absolute; width: 9px; height: 13px; border-radius: 2px; will-change: transform, opacity; }
+
+/* =====================================================================
+   Liquid glass
+   Frosted, translucent surfaces over a slowly drifting color field,
+   with light-catching edges and springy motion. Layered on top of the
+   base styles above: tokens first, then each surface opts in.
+   ===================================================================== */
+:root {
+  --glass: rgba(255, 255, 255, .58);
+  --glass-strong: rgba(255, 255, 255, .78);
+  --glass-tint: rgba(255, 255, 255, .34);
+  --glass-edge: rgba(255, 255, 255, .85);
+  --glass-rim: rgba(255, 255, 255, .55);
+  --glass-shade: 0 1px 1px rgba(16, 21, 28, .03), 0 8px 28px rgba(31, 60, 120, .10);
+  --glass-shade-lg: 0 18px 50px rgba(31, 60, 120, .22);
+  --glass-blur: blur(22px) saturate(180%);
+  --sheen: linear-gradient(135deg, rgba(255, 255, 255, .55) 0%, rgba(255, 255, 255, .12) 32%, rgba(255, 255, 255, 0) 55%);
+  --blob-1: #8EC5FF;
+  --blob-2: #B9A7FF;
+  --blob-3: #8FE3D2;
+  --bg: #EEF2F8;
+  --spring: cubic-bezier(.2, 1.4, .35, 1);
+  --fluid: cubic-bezier(.25, .9, .3, 1);
+  --bar-bg: rgba(255, 255, 255, .55);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --glass: rgba(30, 34, 44, .52);
+    --glass-strong: rgba(30, 34, 44, .78);
+    --glass-tint: rgba(255, 255, 255, .06);
+    --glass-edge: rgba(255, 255, 255, .22);
+    --glass-rim: rgba(255, 255, 255, .10);
+    --glass-shade: 0 1px 1px rgba(0, 0, 0, .2), 0 10px 30px rgba(0, 0, 0, .35);
+    --glass-shade-lg: 0 20px 60px rgba(0, 0, 0, .6);
+    --sheen: linear-gradient(135deg, rgba(255, 255, 255, .16) 0%, rgba(255, 255, 255, .04) 30%, rgba(255, 255, 255, 0) 55%);
+    --blob-1: #1F4FA8;
+    --blob-2: #4B2F9C;
+    --blob-3: #0F6B66;
+    --bg: #0A0C12;
+    --bar-bg: rgba(30, 34, 44, .55);
+  }
+}
+
+/* The drifting color field behind everything */
+.ambient { position: fixed; inset: -20vmax; z-index: -1; pointer-events: none; overflow: hidden; }
+.ambient i {
+  position: absolute; width: 70vmax; height: 70vmax; border-radius: 50%;
+  background: radial-gradient(circle at center, var(--c) 0%, transparent 62%);
+  opacity: .75; will-change: transform;
+}
+.ambient i:nth-child(1) { --c: var(--blob-1); top: 0; left: 0; animation: drift-a 26s ease-in-out infinite alternate; }
+.ambient i:nth-child(2) { --c: var(--blob-2); top: 20%; right: -10%; animation: drift-b 32s ease-in-out infinite alternate; }
+.ambient i:nth-child(3) { --c: var(--blob-3); bottom: -10%; left: 15%; animation: drift-c 29s ease-in-out infinite alternate; }
+@keyframes drift-a { to { transform: translate(18vmax, 22vmax) scale(1.15); } }
+@keyframes drift-b { to { transform: translate(-22vmax, 14vmax) scale(.9); } }
+@keyframes drift-c { to { transform: translate(12vmax, -20vmax) scale(1.1); } }
+@media (prefers-reduced-motion: reduce) { .ambient i { animation: none; } }
+
+/* Shared glass recipe */
+.stat, .hero, .list, .search, .card, .empty, .spend-card, .icon-btn, .chips .chip, .swipe-tip, .banner, .tabbar, .toast, .sheet {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 1px var(--glass-rim), var(--glass-shade);
+}
+.stat, .hero, .card, .empty, .spend-card, .banner, .swipe-tip { position: relative; isolation: isolate; }
+.stat::after, .hero::after, .card::after, .empty::after, .spend-card::after, .list::after, .banner::after, .tabbar::after, .sheet::after, .fab::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: var(--sheen); mix-blend-mode: soft-light; z-index: 3;
+}
+.list { position: relative; }
+
+/* Rounder, softer shapes */
+.stat { border-radius: 22px; }
+.hero, .list, .card, .empty, .spend-card, .banner { border-radius: 26px; }
+.search { border-radius: 18px; }
+.search input { border-radius: 18px; }
+
+/* Tinted cards keep their meaning */
+.hero.calm { background: color-mix(in srgb, var(--ok) 16%, var(--glass)); }
+.banner, .swipe-tip { background: color-mix(in srgb, var(--accent) 14%, var(--glass)); }
+.cloud-box { background: color-mix(in srgb, var(--accent) 12%, var(--glass-tint)); box-shadow: inset 0 0 0 1px var(--glass-rim); }
+
+/* Rows sit on the list's glass */
+.row { background: transparent; }
+.list > li + li::before { background: color-mix(in srgb, var(--ink) 9%, transparent); }
+.hrow > button:active, .option:active { background: var(--glass-tint); }
+
+/* App bar turns to glass as you scroll */
+.appbar { background: transparent; }
+.appbar.scrolled { background: var(--bar-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: 0 1px 0 var(--glass-rim); }
+body::before { background: transparent; }
+
+/* Buttons: liquid press */
+.btn, .tile, .chip, .icon-btn, .check, .fab, .tabbar button, .segmented button {
+  transition: transform .35s var(--spring), background-color .2s, box-shadow .2s, color .2s;
+}
+.btn:active, .tile:active, .chip:active, .icon-btn:active, .segmented button:active { transform: scale(.95); }
+.btn:not(.primary):not(.danger), .tile:not(.primary) { background: var(--glass-tint); box-shadow: inset 0 0 0 1px var(--glass-rim); }
+.btn.primary, .tile.primary, .hero-done {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 82%, #fff) 0%, var(--accent) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.chips .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); box-shadow: 0 6px 16px rgba(16, 21, 28, .18); }
+.segmented { background: var(--glass-tint); box-shadow: inset 0 0 0 1px var(--glass-rim); }
+.segmented button[aria-pressed="true"] { background: var(--glass-strong); box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px rgba(16, 21, 28, .12); }
+
+/* Inputs inside glass */
+.field input, .field select, .field textarea, input.short, .short-select, .inline-add input {
+  background: var(--glass-tint); box-shadow: inset 0 0 0 1px var(--glass-rim);
+}
+.field input:focus, .field select:focus, .field textarea:focus, input.short:focus, .inline-add input:focus { background: var(--glass-strong); }
+.jobs, .option-list, .checklist, .notes-block, .detail-status { background: var(--glass-tint); box-shadow: inset 0 0 0 1px var(--glass-rim); }
+
+/* Status pills glow softly */
+.due.late { box-shadow: 0 0 0 1px color-mix(in srgb, var(--late) 25%, transparent), 0 4px 14px color-mix(in srgb, var(--late) 22%, transparent); }
+.due.soon { box-shadow: 0 0 0 1px color-mix(in srgb, var(--soon) 25%, transparent); }
+.row[data-status="late"] .check { box-shadow: 0 0 0 4px color-mix(in srgb, var(--late) 14%, transparent); }
+
+/* Floating glass tab bar with a liquid indicator */
+.tabbar {
+  left: 50%; right: auto; transform: translateX(-50%);
+  bottom: calc(10px + var(--safe-b));
+  width: min(420px, calc(100% - 2 * max(16px, env(safe-area-inset-left, 0px))));
+  padding: 6px; border: 0; border-radius: 999px; gap: 0;
+  --tabbar-h: 62px;
+}
+.tabbar button { position: relative; z-index: 1; max-width: none; border-radius: 999px; min-height: 52px; }
+.tabbar button[aria-pressed="true"] .tab-ic { background: transparent; }
+.tab-indicator {
+  position: absolute; z-index: 0; top: 6px; bottom: 6px; left: 0; width: 0; border-radius: 999px;
+  background: var(--glass-strong);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 4px 14px rgba(31, 60, 120, .16);
+}
+body { padding-bottom: calc(var(--tabbar-h) + var(--safe-b) + 110px); }
+
+/* Floating glass + button */
+.fab {
+  bottom: calc(var(--tabbar-h) + var(--safe-b) + 26px); border-radius: 50%; width: 60px; height: 60px; overflow: hidden;
+  background: radial-gradient(120% 120% at 30% 20%, color-mix(in srgb, var(--accent) 70%, #fff) 0%, var(--accent) 60%);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .6), inset 0 -6px 12px rgba(0, 0, 0, .12), 0 10px 26px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.fab:active { transform: scale(.9); }
+
+/* Sheets and toasts */
+.scrim { background: color-mix(in srgb, var(--bg) 30%, rgba(10, 14, 24, .22)); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.sheet { background: var(--glass-strong); border-radius: 32px 32px 0 0; box-shadow: inset 0 1px 0 var(--glass-edge), var(--glass-shade-lg); position: relative; }
+@media (min-width: 640px) { .sheet { border-radius: 32px; } }
+.grabber { background: color-mix(in srgb, var(--ink) 18%, transparent); }
+.toast { background: color-mix(in srgb, var(--ink) 78%, transparent); color: var(--bg); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), var(--glass-shade-lg); border-radius: 22px; bottom: calc(var(--tabbar-h) + var(--safe-b) + 24px); }
+
+/* Fluid entrances */
+@media (prefers-reduced-motion: no-preference) {
+  .sheet { animation: sheet-rise .5s var(--spring); }
+  @keyframes sheet-rise { from { transform: translateY(60px) scale(.98); opacity: .4; } }
+  .toast { animation: toast-pop .45s var(--spring); }
+  @keyframes toast-pop { from { transform: translate(-50%, 16px) scale(.92); opacity: 0; } }
+  body:has(.scrim) .toast { animation-name: toast-drop; }
+  @keyframes toast-drop { from { transform: translate(-50%, -16px) scale(.92); opacity: 0; } }
+  #main.view-enter > * { animation: rise-in .45s var(--fluid) both; }
+  #main.view-enter > *:nth-child(2) { animation-delay: .04s; }
+  #main.view-enter > *:nth-child(3) { animation-delay: .08s; }
+  #main.view-enter > *:nth-child(n+4) { animation-delay: .12s; }
+  @keyframes rise-in { from { transform: translateY(14px); opacity: 0; } }
+  .row.completing .check { animation: check-pop .5s var(--spring); }
+  @keyframes check-pop { 40% { transform: scale(1.3); } }
+}
+
+/* Swipe: reveal only the uncovered part, since rows are see-through now */
+.swipe-bg { clip-path: inset(0 0 0 0 round 0); }
+.swipe.swiping[data-dir="right"] .swipe-bg, .swipe.hinting[data-dir="right"] .swipe-bg { clip-path: inset(0 calc(100% - var(--reveal, 0px)) 0 0); }
+.swipe.swiping[data-dir="left"] .swipe-bg { clip-path: inset(0 0 0 calc(100% - var(--reveal, 0px))); }
+.swipe.leaving .swipe-bg { clip-path: none; }
+.swipe.swiping .row, .swipe.hinting .row { background: var(--glass-strong); }
+.swipe.leaving .row { background: var(--glass-strong); }

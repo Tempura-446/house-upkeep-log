@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>House Upkeep Log</title>
   <meta name="description" content="Track recurring home maintenance chores and see what's due.">
-  <meta name="theme-color" content="#F3F5F8" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0C0E12" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#EEF2F8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0A0C12" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+  <div class="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
   <div class="app">
     <header class="appbar">
       <div class="appbar-text">
@@ -41,6 +42,7 @@
   <button class="fab" id="addBtn" aria-label="Add task"></button>
 
   <nav class="tabbar" aria-label="Sections">
+    <span class="tab-indicator" aria-hidden="true"></span>
     <button data-view="tasks" aria-pressed="true"><span class="tab-ic" data-icon="tasks"></span><span>Tasks</span></button>
     <button data-view="history" aria-pressed="false"><span class="tab-ic" data-icon="history"></span><span>History</span></button>
     <button data-view="home" aria-pressed="false"><span class="tab-ic" data-icon="home"></span><span>Home info</span></button>

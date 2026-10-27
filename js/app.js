@@ -1,12 +1,13 @@
-import { statusOf, todayISO, formatShort, describeSchedule, diffDays } from "./schedule.js";
+import { statusOf, todayISO, formatShort, describeSchedule, diffDays, snooze } from "./schedule.js";
 import { AREAS, referencedFiles, spendingByYear } from "./store.js";
 import { HOME_INFO_IDEAS } from "./starters.js";
-import { state, onChange, onSaveFailed, reload, homeTasks, homeInfoItems, currentHome, setLocal } from "./state.js";
+import { state, onChange, onSaveFailed, reload, homeTasks, homeInfoItems, currentHome, setLocal, putTask } from "./state.js";
 import { pruneFiles } from "./files.js";
 import { markDone, openTaskDetail, openJobSheet, openTaskForm, openStarterSheet } from "./task-sheets.js";
 import { openHomeForm, openSettings, openHomesSheet, openBackupSheet } from "./other-sheets.js";
 import { $, $$, esc, money, plural, toast, closeSheet, sheetOpen } from "./ui.js";
 import { icon, areaIcon } from "./icons.js";
+import { enableSwipe, hintSwipe, celebrate } from "./swipe.js";
 
 const VIEWS = { tasks: "Tasks", history: "History", home: "Home info" };
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -38,7 +39,12 @@ function taskRow({ t, s }) {
   const files = t.log.reduce((n, e) => n + e.files.length, 0);
   const checkAct = s.key === "new" ? "setdate" : "done";
   const checkLabel = s.key === "new" ? `Set when you last did ${t.name}` : `Mark ${t.name} done today`;
-  return `<li class="row" data-status="${s.key}">
+  return `<li class="swipe" data-id="${esc(t.id)}">
+    <div class="swipe-bg" aria-hidden="true">
+      <span class="sw sw-right">${icon.check}<span>${s.key === "new" ? "Set date" : "Done"}</span></span>
+      <span class="sw sw-left"><span>Snooze</span>${icon.snooze}</span>
+    </div>
+    <div class="row" data-status="${s.key}">
     <button class="check" data-act="${checkAct}" data-id="${esc(t.id)}" aria-label="${esc(checkLabel)}">${icon.check}</button>
     <button class="main" data-act="detail" data-id="${esc(t.id)}" aria-label="Details for ${esc(t.name)}">
       <span class="name">${esc(t.name)}${t.sample ? ' <span class="tag">example</span>' : ""}</span>
@@ -47,6 +53,7 @@ function taskRow({ t, s }) {
       }${files ? `<span class="tag">${icon.receipt}${files}</span>` : ""}</span>
     </button>
     <span class="due ${s.key}">${esc(s.key === "new" ? "No date yet" : s.label)}</span>
+    </div>
   </li>`;
 }
 
@@ -108,7 +115,12 @@ function renderTasks(all, today) {
   const shown = all.filter((t) => (state.area === "All" || t.area === state.area) && matches(t.name, t.area, t.notes, describeSchedule(t)));
   if (!shown.length && state.query) return noResults();
   const rows = shown.map((t) => ({ t, s: statusOf(t, today, state.prefs.soonDays) })).sort((a, b) => a.s.days - b.s.days || a.t.name.localeCompare(b.t.name));
+  const tip =
+    !state.local.swipeHintSeen && rows.some((r) => r.s.key !== "new")
+      ? `<div class="swipe-tip"><span>Swipe a task <b>right</b> to mark it done, <b>left</b> to snooze it a week.</span><button class="link" data-act="tip-ok">Got it</button></div>`
+      : "";
   return (
+    tip +
     GROUPS.map(([key, title, hint]) => {
       const g = rows.filter((r) => r.s.key === key);
       if (!g.length) return "";
@@ -222,6 +234,7 @@ function render() {
   $("#summary").innerHTML = state.view === "tasks" && !state.query ? summaryHTML(all, today) : "";
   $("#addBtn").setAttribute("aria-label", state.view === "home" ? "Add home info" : "Add task");
   $$("[data-view]").forEach((b) => b.setAttribute("aria-pressed", state.view === b.dataset.view));
+  moveIndicator();
 
   const hasContent = state.view === "home" ? homeInfoItems().length > 0 : all.length > 0;
   $("#searchBar").hidden = !hasContent;
@@ -243,11 +256,82 @@ function render() {
 }
 
 /** Fill the check circle briefly before the row moves, so the tap feels acknowledged. */
+const overdueCount = () => homeTasks().filter((t) => statusOf(t, todayISO(), state.prefs.soonDays).key === "late").length;
+
+/* ---------------- liquid tab indicator ---------------- */
+let indicatorAt = null;
+function moveIndicator() {
+  const ind = $(".tab-indicator");
+  const btn = $(`.tabbar [data-view="${state.view}"]`);
+  if (!ind || !btn) return;
+  const to = { left: btn.offsetLeft, width: btn.offsetWidth };
+  const from = indicatorAt;
+  indicatorAt = to;
+  ind.style.left = `${to.left}px`;
+  ind.style.width = `${to.width}px`;
+  if (!from || reduceMotion.matches || (from.left === to.left && from.width === to.width)) return;
+  // Stretch across both tabs, then pull into the new one, like a drop of liquid.
+  const span = { left: Math.min(from.left, to.left), width: Math.abs(to.left - from.left) + Math.max(from.width, to.width) };
+  ind.animate(
+    [
+      { left: `${from.left}px`, width: `${from.width}px` },
+      { left: `${span.left}px`, width: `${span.width * 0.82}px`, offset: 0.45 },
+      { left: `${to.left}px`, width: `${to.width}px` },
+    ],
+    { duration: 520, easing: "cubic-bezier(.3,1.25,.4,1)" }
+  );
+}
+addEventListener("resize", () => {
+  indicatorAt = null;
+  moveIndicator();
+});
+
+/** Mark done, with confetti; a bigger burst when that clears the last overdue task. */
+function finish(id, fromEl) {
+  const before = overdueCount();
+  celebrate(fromEl);
+  markDone(id);
+  if (before > 0 && overdueCount() === 0)
+    setTimeout(() => celebrate(null, { big: true }), 450); // the Undo toast stays put
+}
+
+/** Fill the check circle briefly before the row moves, so the tap feels acknowledged. */
 function completeWithAnimation(btn, id) {
   if (reduceMotion.matches) return markDone(id);
   btn.closest(".row, .hero")?.classList.add("completing");
   btn.disabled = true;
-  setTimeout(() => markDone(id), 320);
+  setTimeout(() => finish(id, btn), 320);
+}
+
+function snoozeWeek(id) {
+  const t = state.tasks.get(id);
+  if (!t) return;
+  const snoozed = snooze(t, 7);
+  putTask(snoozed);
+  toast(`Snoozed “${t.name}” to ${formatShort(snoozed.snoozedUntil)}.`, [{ label: "Undo", run: () => putTask(t) }]);
+}
+
+const statusKey = (id) => {
+  const t = state.tasks.get(id);
+  return t ? statusOf(t, todayISO(), state.prefs.soonDays).key : null;
+};
+
+enableSwipe($("#main"), {
+  canRight: (id) => Boolean(statusKey(id)),
+  canLeft: (id) => statusKey(id) !== "new" && Boolean(statusKey(id)),
+  rightLeaves: (id) => statusKey(id) !== "new",
+  right: (id, li) => (statusKey(id) === "new" ? openJobSheet(id, null, { prompt: "When did you last do this?" }) : finish(id, li)),
+  left: (id) => snoozeWeek(id),
+  onFirstSwipe: () => !state.local.swipeHintSeen && setLocal({ swipeHintSeen: true }),
+});
+
+let hinted = false;
+function maybeHint() {
+  if (hinted || state.local.swipeHintSeen || state.view !== "tasks" || state.query || sheetOpen()) return;
+  const li = [...document.querySelectorAll("#main .swipe")].find((x) => x.querySelector('.row:not([data-status="new"])'));
+  if (!li) return;
+  hinted = true;
+  hintSwipe(li);
 }
 
 document.addEventListener("click", (e) => {
@@ -265,6 +349,10 @@ document.addEventListener("click", (e) => {
     state.view = b.dataset.view;
     state.query = "";
     render();
+    const main = $("#main");
+    main.classList.remove("view-enter");
+    void main.offsetWidth; // restart the entrance animation
+    main.classList.add("view-enter");
     window.scrollTo({ top: 0 });
   }
   const { act, id } = b.dataset;
@@ -278,6 +366,7 @@ document.addEventListener("click", (e) => {
   if (act === "homeidea") openHomeForm(null, HOME_INFO_IDEAS.find((i) => i[0] === b.dataset.idea));
   if (act === "homes") openHomesSheet();
   if (act === "backup") openBackupSheet();
+  if (act === "tip-ok") setLocal({ swipeHintSeen: true });
   if (act === "signin") {
     openSettings();
     setTimeout(() => $("#cloudEmail")?.focus(), 60);
@@ -321,8 +410,10 @@ const appbar = $(".appbar");
 addEventListener("scroll", () => appbar.classList.toggle("scrolled", scrollY > 8), { passive: true });
 
 onChange(render);
+onChange(() => setTimeout(maybeHint, 50));
 onSaveFailed(() => toast("Couldn't save on this device. Your browser may be in private mode or out of space."));
 render();
+setTimeout(maybeHint, 600);
 
 // Tidy up attachments that no longer belong to any job or Home info item.
 pruneFiles(referencedFiles([...state.tasks.values()], [...state.home.values()])).catch(() => {});

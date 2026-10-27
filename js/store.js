@@ -120,6 +120,7 @@ export function normalizeLocal(raw = {}) {
     lastBackupAt: stamp(raw?.lastBackupAt),
     backupNudgeAt: stamp(raw?.backupNudgeAt),
     firstUseAt: stamp(raw?.firstUseAt),
+    swipeHintSeen: Boolean(raw?.swipeHintSeen),
   };
 }
 
