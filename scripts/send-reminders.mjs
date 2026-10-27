@@ -4,7 +4,7 @@
 // a run was delayed) and the device hasn't had today's reminder yet, work out what's due with the same code
 // the app uses, and send one notification.
 //
-// Needs: SUPABASE_SERVICE_ROLE_KEY and VAPID_PRIVATE_KEY (GitHub secrets).
+// Needs: SUPABASE_SERVICE_ROLE_KEY (the project's secret key) and VAPID_PRIVATE_KEY (GitHub secrets).
 // Optional: TEST=1 sends a test notification to every device right away.
 import webpush from "web-push";
 import { CLOUD } from "../js/config.js";
@@ -28,7 +28,8 @@ webpush.setVapidDetails(GITHUB_SERVER_URL && GITHUB_REPOSITORY ? `${GITHUB_SERVE
 async function db(path, { method = "GET", body } = {}) {
   const res = await fetch(`${CLOUD.supabaseUrl}/rest/v1/${path}`, {
     method,
-    headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+    // New-style secret keys (sb_secret_…) go in the apikey header only; older JWT service_role keys also need Authorization.
+    headers: { apikey: key, ...(key.startsWith("eyJ") ? { Authorization: `Bearer ${key}` } : {}), "Content-Type": "application/json", Prefer: "return=minimal" },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(`${method} ${path.split("?")[0]} failed: ${res.status} ${await res.text()}`);

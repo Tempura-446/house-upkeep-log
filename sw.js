@@ -1,6 +1,6 @@
 // Offline support: cache the app shell, serve it cache-first, refresh in the background.
 // Bump VERSION whenever you change any file in SHELL so phones pick up the new version.
-const VERSION = "v5";
+const VERSION = "v6";
 const CACHE = `house-upkeep-${VERSION}`;
 const SHELL = [
   "./",

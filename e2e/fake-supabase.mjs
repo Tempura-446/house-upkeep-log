@@ -1,8 +1,9 @@
-// Used by e2e/sync.spec.js. A tiny stand-in for Supabase (auth codes, items table with push_items LWW, storage, push_subs) for local testing.
+// Used by e2e/sync.spec.js. A tiny stand-in for Supabase (password sign-in, items table with push_items LWW, storage, push_subs) for local testing.
 import http from "node:http";
 
 const users = new Map(); // email -> id
-const codes = new Map(); // email -> code
+const passwords = new Map(); // email -> password
+const confirmed = new Set(); // emails that clicked the confirmation link
 const tokens = new Map(); // access/refresh token -> user id
 let items = []; // { user_id, id, kind, data, deleted, updated_at, server_at }
 const objects = new Map(); // path -> { type, buf }
@@ -30,20 +31,28 @@ http
       const buf = Buffer.concat(chunks);
       const u = new URL(req.url, "http://x");
       if (req.method === "OPTIONS") return send(res, 204);
+      if (u.pathname === "/__confirm") {
+        confirmed.add(u.searchParams.get("email"));
+        return send(res, 200, { ok: true });
+      }
       if (req.headers.apikey !== "anon-test") return send(res, 401, { message: "bad apikey" });
       const json = () => (buf.length ? JSON.parse(buf.toString()) : {});
       const uid = tokens.get((req.headers.authorization || "").replace("Bearer ", ""));
 
       // ---- auth ----
-      if (u.pathname === "/auth/v1/otp") {
-        const { email } = json();
-        if (!users.has(email)) users.set(email, "user-" + users.size);
-        codes.set(email, "123456");
-        return send(res, 200, {});
+      if (u.pathname === "/auth/v1/signup") {
+        const { email, password } = json();
+        if (users.has(email)) return send(res, 200, { id: "obfuscated" }); // like Supabase: don't reveal existing accounts
+        if ((password || "").length < 8) return send(res, 422, { msg: "Password should be at least 8 characters." });
+        users.set(email, "user-" + users.size);
+        passwords.set(email, password);
+        return send(res, 200, { id: users.get(email), email });
       }
-      if (u.pathname === "/auth/v1/verify") {
-        const { email, token } = json();
-        if (codes.get(email) !== token) return send(res, 403, { msg: "Token has expired or is invalid" });
+      if (u.pathname === "/auth/v1/recover") return send(res, 200, {});
+      if (u.pathname === "/auth/v1/token" && u.searchParams.get("grant_type") === "password") {
+        const { email, password } = json();
+        if (!users.has(email) || passwords.get(email) !== password) return send(res, 400, { error_description: "Invalid login credentials", msg: "Invalid login credentials" });
+        if (!confirmed.has(email)) return send(res, 400, { msg: "Email not confirmed" });
         return send(res, 200, session(users.get(email), email));
       }
       if (u.pathname === "/auth/v1/token") {

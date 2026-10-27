@@ -36,12 +36,12 @@ create trigger items_touch before insert or update on public.items
 -- Upload a batch of records; a row only replaces the stored one if it is newer.
 create or replace function public.push_items(rows jsonb) returns void
 language sql security invoker set search_path = '' as $$
-  insert into public.items (user_id, id, kind, data, deleted, updated_at)
+  insert into public.items as i (user_id, id, kind, data, deleted, updated_at)
   select auth.uid(), r->>'id', r->>'kind', r->'data', coalesce((r->>'deleted')::boolean, false), (r->>'updated_at')::bigint
   from jsonb_array_elements(rows) as r
   on conflict (user_id, id) do update
     set kind = excluded.kind, data = excluded.data, deleted = excluded.deleted, updated_at = excluded.updated_at
-    where public.items.updated_at < excluded.updated_at;
+    where i.updated_at < excluded.updated_at;
 $$;
 grant execute on function public.push_items(jsonb) to authenticated;
 

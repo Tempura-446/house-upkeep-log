@@ -549,3 +549,7 @@ body:has(.scrim) .toast { bottom: auto; top: calc(var(--safe-t) + 12px); }
 .cloud-actions .btn { background: var(--surface); }
 .cloud-box .link { align-self: flex-start; }
 .empty .link { margin-top: 2px; }
+.cloud-form { display: flex; flex-direction: column; gap: 12px; }
+.cloud-box .field input { background: var(--surface); }
+.cloud-box .segmented { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+.cloud-actions { align-items: center; }

@@ -9,7 +9,7 @@ import { rowsToPush, mergeRows, newestStamp } from "./sync-core.js";
 import { referencedFiles } from "./store.js";
 import { getFile, putFileRecord } from "./files.js";
 import { addSettingsSection } from "./other-sheets.js";
-import { $, esc, toast } from "./ui.js";
+import { $, esc, toast, openSheet, closeSheet } from "./ui.js";
 import { icon } from "./icons.js";
 
 const enabled = Boolean(CLOUD.supabaseUrl && CLOUD.supabaseAnonKey);
@@ -96,17 +96,79 @@ async function freshToken() {
   return refreshing;
 }
 
-/* ---------------- sign-in ---------------- */
-async function sendCode(email) {
-  await http("/auth/v1/otp", { method: "POST", body: { email, create_user: true }, auth: false });
-}
-async function verifyCode(email, token) {
-  const d = await http("/auth/v1/verify", { method: "POST", body: { type: "email", email, token }, auth: false });
-  setSession(sessionFrom(d));
-  // A new account (or a different one) starts from scratch so everything on this device uploads.
+/* ---------------- sign-in (email + password) ---------------- */
+// Links in Supabase's emails (confirm address, reset password) come back to the app's own address.
+const appURL = () => new URL("./", location.href).href;
+
+function startFresh() {
+  // A new sign-in starts sync from scratch so everything on this device uploads and everything remote downloads.
   sync = { pushedUpTo: 0, pulledAt: null, lastSyncAt: 0, uploaded: [], fileStamps: {}, userId: session.user.id };
   saveSync();
 }
+
+async function signInWithPassword(email, password) {
+  const d = await http("/auth/v1/token?grant_type=password", { method: "POST", body: { email, password }, auth: false });
+  setSession(sessionFrom(d));
+  startFresh();
+}
+
+/** Returns "signed-in" when the account is ready right away, or "confirm" when an email has to be confirmed first. */
+async function signUp(email, password) {
+  const d = await http(`/auth/v1/signup?redirect_to=${encodeURIComponent(appURL())}`, { method: "POST", body: { email, password }, auth: false });
+  if (d?.access_token) {
+    setSession(sessionFrom(d));
+    startFresh();
+    return "signed-in";
+  }
+  return "confirm";
+}
+
+async function sendReset(email) {
+  await http(`/auth/v1/recover?redirect_to=${encodeURIComponent(appURL())}`, { method: "POST", body: { email }, auth: false });
+}
+
+async function setNewPassword(password) {
+  await http("/auth/v1/user", { method: "PUT", body: { password } });
+}
+
+/** Turn Supabase's error wording into something a person can act on. */
+function friendly(err) {
+  const m = err.message || "";
+  if (/invalid login credentials/i.test(m)) return "That email and password don't match. Check them, or reset your password.";
+  if (/email not confirmed/i.test(m)) return "Confirm your email first: open the link we sent you, then sign in here.";
+  if (/already registered|already been registered/i.test(m)) return "There's already an account with that email. Sign in instead.";
+  if (/password should be at least|weak password/i.test(m)) return "Choose a longer password (at least 8 characters).";
+  if (/signups not allowed|signup is disabled/i.test(m)) return "New accounts are turned off for this app. Sign in with your existing account.";
+  if (err.status === 429 || /rate limit/i.test(m)) return "Too many tries. Wait a few minutes and try again.";
+  return m;
+}
+
+/**
+ * When the app opens from a link in a Supabase email, the address ends with #access_token=…&type=…
+ * Take the session from it, clear it from the address bar, and say what happened.
+ * Returns "signup", "recovery", or null.
+ */
+function takeSessionFromLink() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get("error_description")) {
+    history.replaceState(null, "", location.pathname + location.search);
+    toast(/expired|invalid/i.test(h.get("error_description")) ? "That link has expired. Request a new one from Settings." : h.get("error_description"));
+    return null;
+  }
+  if (!h.get("access_token") || !h.get("refresh_token")) return null;
+  const type = h.get("type");
+  history.replaceState(null, "", location.pathname + location.search);
+  let user = {};
+  try {
+    const payload = JSON.parse(atob(h.get("access_token").split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    user = { id: payload.sub, email: payload.email };
+  } catch {}
+  const previous = session?.user?.id;
+  setSession({ access_token: h.get("access_token"), refresh_token: h.get("refresh_token"), expires_at: Date.now() + Number(h.get("expires_in") || 3600) * 1000, user });
+  if (previous !== user.id) startFresh();
+  return type;
+}
+
 async function signOut() {
   try {
     await unsubscribePush();
@@ -273,22 +335,35 @@ function settingsSection(container, sheet) {
   const box = document.createElement("div");
   box.className = "cloud-box";
   container.append(box);
-  let step = "email";
-  let email = session?.user?.email || "";
+  let mode = "signin"; // "signin" | "create" | "reset" | "confirm"
+  let email = session?.user?.email || readJSON("house-upkeep-log:last-email", "") || "";
 
   const draw = async () => {
     if (!box.isConnected) return (redrawSettings = null);
     if (!signedIn()) {
-      box.innerHTML = `
-        <div class="cloud-head">${icon.cloud}<div><b>Sync & cloud backup</b><small>Sign in with your email to keep your log safe and use it on more than one device. Also turns on reminder notifications.</small></div></div>
-        ${
-          step === "email"
-            ? `<form class="inline-add" id="emailForm"><input id="cloudEmail" type="email" required autocomplete="email" placeholder="you@example.com" aria-label="Email" value="${esc(email)}"><button class="btn primary" type="submit">Send code</button></form>`
-            : `<p class="help">We sent a code to <b>${esc(email)}</b>. It can take a minute; check spam if you don't see it.</p>
-               <form class="inline-add" id="codeForm"><input id="cloudCode" inputmode="numeric" autocomplete="one-time-code" required pattern="[0-9]{6,10}" placeholder="Code" aria-label="Code from the email"><button class="btn primary" type="submit">Sign in</button></form>
-               <button type="button" class="link" id="otherEmail">Use a different email</button>`
-        }
-        <span class="help" id="cloudStatus" aria-live="polite"></span>`;
+      const intro = `<div class="cloud-head">${icon.cloud}<div><b>Sync & cloud backup</b><small>Sign in to keep your log safe and use it on more than one device. Also turns on reminder notifications.</small></div></div>`;
+      const emailField = `<div class="field"><label for="cloudEmail">Email</label><input id="cloudEmail" type="email" required autocomplete="email" placeholder="you@example.com" value="${esc(email)}"></div>`;
+      let body = "";
+      if (mode === "confirm") {
+        body = `<p class="help">Almost there. We sent a link to <b>${esc(email)}</b>. Open it to confirm your email (it can take a minute; check spam), then come back here and sign in.</p>
+          <button type="button" class="btn primary" data-mode="signin">Sign in</button>`;
+      } else if (mode === "reset") {
+        body = `<form class="cloud-form" id="resetForm">${emailField}
+            <p class="help">We'll email you a link to choose a new password.</p>
+            <div class="cloud-actions"><button class="btn primary" type="submit">Send reset link</button><button type="button" class="btn" data-mode="signin">Back</button></div>
+          </form>`;
+      } else {
+        const creating = mode === "create";
+        body = `<div class="segmented small" role="group" aria-label="Account">
+            <button type="button" data-mode="signin" aria-pressed="${!creating}">Sign in</button>
+            <button type="button" data-mode="create" aria-pressed="${creating}">Create account</button>
+          </div>
+          <form class="cloud-form" id="authForm">${emailField}
+            <div class="field"><label for="cloudPassword">Password</label><input id="cloudPassword" type="password" required minlength="${creating ? 8 : 1}" autocomplete="${creating ? "new-password" : "current-password"}"${creating ? ' aria-describedby="pwHelp"' : ""}>${creating ? '<span class="help" id="pwHelp">At least 8 characters. Your phone can suggest a strong one.</span>' : ""}</div>
+            <div class="cloud-actions"><button class="btn primary" type="submit">${creating ? "Create account" : "Sign in"}</button>${creating ? "" : '<button type="button" class="link" data-mode="reset">Forgot password?</button>'}</div>
+          </form>`;
+      }
+      box.innerHTML = `${intro}${body}<span class="help" id="cloudStatus" role="status" aria-live="polite"></span>`;
     } else {
       const sub = await currentSubscription().catch(() => null);
       const pushRow = !CLOUD.vapidPublicKey
@@ -319,36 +394,48 @@ function settingsSection(container, sheet) {
   };
 
   function wire() {
-    $("#emailForm", box)?.addEventListener("submit", async (e) => {
+    box.querySelectorAll("[data-mode]").forEach((b) =>
+      b.addEventListener("click", () => {
+        email = $("#cloudEmail", box)?.value.trim() || email;
+        mode = b.dataset.mode;
+        draw();
+      })
+    );
+    $("#authForm", box)?.addEventListener("submit", async (e) => {
       e.preventDefault();
       email = $("#cloudEmail", box).value.trim();
-      e.submitter && (e.submitter.disabled = true);
-      status("Sending…");
+      writeJSON("house-upkeep-log:last-email", email);
+      const password = $("#cloudPassword", box).value;
+      const btn = e.submitter;
+      if (btn) btn.disabled = true;
+      status(mode === "create" ? "Creating your account…" : "Signing in…");
       try {
-        await sendCode(email);
-        step = "code";
-        draw();
-        setTimeout(() => $("#cloudCode", box)?.focus(), 50);
-      } catch (err) {
-        status(err.status === 429 ? "Too many codes requested. Wait a few minutes and try again." : err.message);
-        e.submitter && (e.submitter.disabled = false);
-      }
-    });
-    $("#codeForm", box)?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      status("Signing in…");
-      try {
-        await verifyCode(email, $("#cloudCode", box).value.trim());
-        step = "email";
+        if (mode === "create" && (await signUp(email, password)) === "confirm") {
+          mode = "confirm";
+          return draw();
+        }
+        if (mode !== "create") await signInWithPassword(email, password);
+        mode = "signin";
         rerender?.();
         draw();
         await syncNow();
         toast("Signed in. Your log is now backed up and syncing.");
       } catch (err) {
-        status(/expired|invalid/i.test(err.message) ? "That code didn't work. Check it, or request a new one." : err.message);
+        status(friendly(err));
+        if (btn) btn.disabled = false;
       }
     });
-    $("#otherEmail", box)?.addEventListener("click", () => ((step = "email"), draw()));
+    $("#resetForm", box)?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      email = $("#cloudEmail", box).value.trim();
+      status("Sending…");
+      try {
+        await sendReset(email);
+        status("If there's an account for that email, a reset link is on its way. Open it on this device.");
+      } catch (err) {
+        status(friendly(err));
+      }
+    });
     $("#syncBtn", box)?.addEventListener("click", () => {
       syncNow();
       draw();
@@ -380,6 +467,26 @@ function settingsSection(container, sheet) {
   draw();
 }
 
+function openNewPasswordSheet() {
+  const sheet = openSheet(`<form class="sheet-form" id="newPwForm">
+      <h3>Choose a new password</h3>
+      <p class="help">For ${esc(session?.user?.email || "your account")}.</p>
+      <div class="field"><label for="newPw">New password</label><input id="newPw" type="password" required minlength="8" autocomplete="new-password"><span class="help">At least 8 characters.</span></div>
+      <span class="help" id="newPwStatus" role="status" aria-live="polite"></span>
+      <div class="actions"><div class="right"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save password</button></div></div>
+    </form>`);
+  $("#newPwForm", sheet).addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      await setNewPassword($("#newPw", sheet).value);
+      closeSheet(sheet);
+      toast("Password changed. Use it to sign in on your other devices.");
+    } catch (err) {
+      $("#newPwStatus", sheet).textContent = friendly(err);
+    }
+  });
+}
+
 const hourLabel = (h) => new Date(2000, 0, 1, h).toLocaleTimeString(undefined, { hour: "numeric" });
 
 /* ---------------- start ---------------- */
@@ -399,6 +506,9 @@ export function start({ hooks, render }) {
   setInterval(() => !document.hidden && syncNow(), 5 * MINUTE);
   window.addEventListener("file-label", () => syncNow());
   rerender = render;
+  const fromLink = takeSessionFromLink();
+  if (fromLink === "recovery") setTimeout(openNewPasswordSheet, 300);
+  else if (fromLink) toast("Email confirmed. You're signed in and syncing on this browser. On your phone's app, sign in with the same email and password.");
   if (signedIn()) syncNow();
   render?.();
 }

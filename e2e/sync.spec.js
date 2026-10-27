@@ -16,12 +16,31 @@ async function phone(browser, email) {
   return p;
 }
 
+const PASSWORD = "correct horse battery";
+
+async function createAccount(p, request) {
+  await p.getByRole("button", { name: "Settings" }).click();
+  await p.getByRole("button", { name: "Create account" }).first().click();
+  await p.locator("#cloudEmail").fill(p.email);
+  await p.locator("#cloudPassword").fill(PASSWORD);
+  await p.locator("#authForm").getByRole("button", { name: "Create account" }).click();
+  await expect(p.locator(".cloud-box")).toContainText("Open it to confirm your email");
+  // Signing in before confirming explains what to do.
+  await p.locator(".cloud-box").getByRole("button", { name: "Sign in" }).click();
+  await p.locator("#cloudPassword").fill(PASSWORD);
+  await p.locator("#authForm").getByRole("button", { name: "Sign in" }).click();
+  await expect(p.locator("#cloudStatus")).toContainText("Confirm your email first");
+  await request.get(`http://localhost:5998/__confirm?email=${encodeURIComponent(p.email)}`);
+  await p.locator("#authForm").getByRole("button", { name: "Sign in" }).click();
+  await expect(p.locator("#syncLine")).toContainText("Last synced", { timeout: 15000 });
+  await p.getByRole("button", { name: "Done", exact: true }).click();
+}
+
 async function signIn(p) {
   await p.getByRole("button", { name: "Settings" }).click();
   await p.locator("#cloudEmail").fill(p.email);
-  await p.getByRole("button", { name: "Send code" }).click();
-  await p.locator("#cloudCode").fill("123456");
-  await p.getByRole("button", { name: "Sign in", exact: true }).click();
+  await p.locator("#cloudPassword").fill(PASSWORD);
+  await p.locator("#authForm").getByRole("button", { name: "Sign in" }).click();
   await expect(p.locator("#syncLine")).toContainText("Last synced", { timeout: 15000 });
   await p.getByRole("button", { name: "Done", exact: true }).click();
 }
@@ -33,7 +52,7 @@ async function syncNow(p) {
   await p.getByRole("button", { name: "Done", exact: true }).click();
 }
 
-test("tasks, jobs, photos, edits, deletions and settings sync between two devices", async ({ browser }) => {
+test("tasks, jobs, photos, edits, deletions and settings sync between two devices", async ({ browser, request }) => {
   const email = `sync-${Date.now()}@example.com`;
   const A = await phone(browser, email);
   await A.getByRole("button", { name: "Choose common tasks" }).click();
@@ -45,7 +64,7 @@ test("tasks, jobs, photos, edits, deletions and settings sync between two device
   await expect(A.locator("#jFiles .thumb img")).toBeVisible();
   await A.getByRole("button", { name: "Save" }).click();
   await A.getByRole("button", { name: "Close" }).click();
-  await signIn(A);
+  await createAccount(A, request);
 
   const B = await phone(browser, email);
   await expect(B.getByRole("button", { name: "I use the app on another device" })).toBeVisible();
@@ -78,19 +97,32 @@ test("tasks, jobs, photos, edits, deletions and settings sync between two device
 
   await B.getByRole("button", { name: "Settings" }).click();
   await B.getByRole("button", { name: "Sign out" }).click();
-  await expect(B.locator(".cloud-box")).toContainText("Sign in with your email");
+  await expect(B.locator(".cloud-box")).toContainText("Sign in to keep your log safe");
   await B.getByRole("button", { name: "Done", exact: true }).click();
   await expect(B.locator(".row")).toHaveCount(9);
 
   expect([...A.errors, ...B.errors]).toEqual([]);
 });
 
-test("a wrong code shows a helpful message", async ({ browser }) => {
+test("a wrong password shows a helpful message", async ({ browser }) => {
   const p = await phone(browser, `wrong-${Date.now()}@example.com`);
   await p.getByRole("button", { name: "Settings" }).click();
   await p.locator("#cloudEmail").fill(p.email);
-  await p.getByRole("button", { name: "Send code" }).click();
-  await p.locator("#cloudCode").fill("000000");
-  await p.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(p.locator("#cloudStatus")).toHaveText("That code didn't work. Check it, or request a new one.");
+  await p.locator("#cloudPassword").fill("nope");
+  await p.locator("#authForm").getByRole("button", { name: "Sign in" }).click();
+  await expect(p.locator("#cloudStatus")).toHaveText("That email and password don't match. Check them, or reset your password.");
+  await p.getByRole("button", { name: "Forgot password?" }).click();
+  await p.getByRole("button", { name: "Send reset link" }).click();
+  await expect(p.locator("#cloudStatus")).toContainText("reset link is on its way");
+});
+
+test("opening the app from an email link signs in and offers a new password", async ({ browser }) => {
+  const ctx = await browser.newContext({ serviceWorkers: "block" });
+  await ctx.route("**/js/config.js", (route) => route.fulfill({ contentType: "text/javascript", body: FAKE_CONFIG }));
+  const p = await ctx.newPage();
+  const payload = Buffer.from(JSON.stringify({ sub: "user-link", email: "link@example.com" })).toString("base64url");
+  await p.goto(`/#access_token=x.${payload}.y&refresh_token=rt-link&expires_in=3600&type=recovery`);
+  await expect(p.getByRole("heading", { name: "Choose a new password" })).toBeVisible();
+  expect(new URL(p.url()).hash).toBe("");
+  await ctx.close();
 });
