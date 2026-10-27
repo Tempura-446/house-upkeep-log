@@ -1,17 +1,18 @@
-// Sheets for a single task: details, logging a job (with cost and receipts), editing, and the starter list.
+// Sheets for a single task: details, logging a job (cost, notes, photos), snoozing, editing, and the starter list.
 import {
   PRESETS, MONTHS, statusOf, todayISO, formatShort, describeSchedule, logJob, updateJob, removeJob,
-  snooze, nextDue, lastDoneOf, isValidISO,
+  snooze, nextDue, isValidISO, addDays, diffDays,
 } from "./schedule.js";
 import { AREAS, newId, normalizeTask } from "./store.js";
 import { COMMON_TASKS } from "./starters.js";
-import { state, putTask, removeTask, onChange, commit } from "./state.js";
-import { addFile, deleteFile, fileURL, getFile } from "./files.js";
+import { state, putTask, putTasks, removeTask, onChange, homeTasks } from "./state.js";
 import { buildCalendar } from "./ics.js";
-import { $, $$, esc, money, plural, openSheet, closeSheet, armButton, toast, download } from "./ui.js";
+import { thumbsHTML, hydrateThumbs, openFile, attachmentField } from "./attachments.js";
+import { $, $$, esc, money, plural, openSheet, closeSheet, armButton, toast, saveFile } from "./ui.js";
 import { icon, areaIcon } from "./icons.js";
 
-const cur = () => state.settings.currency;
+const cur = () => state.prefs.currency;
+const soonDays = () => state.prefs.soonDays;
 
 /* ---------------- quick "Done" from the list ---------------- */
 export function markDone(id) {
@@ -23,52 +24,8 @@ export function markDone(id) {
   const due = nextDue(updated);
   toast(`Logged “${t.name}”.${due ? " Next due " + formatShort(due) + "." : ""}`, [
     { label: "Undo", run: () => putTask(t) },
-    { label: "Add cost", run: () => openJobSheet(id, entry.id) },
+    { label: "Add details", run: () => openJobSheet(id, entry.id) },
   ]);
-}
-
-/* ---------------- receipt thumbnails ---------------- */
-function thumbsHTML(fileIds, { removable = false } = {}) {
-  return fileIds
-    .map(
-      (f) => `<span class="thumb" data-file="${esc(f)}"><button type="button" class="thumb-open" data-open-file="${esc(f)}" aria-label="Open receipt"></button>${
-        removable ? `<button type="button" class="thumb-x" data-remove-file="${esc(f)}" aria-label="Remove receipt">×</button>` : ""
-      }</span>`
-    )
-    .join("");
-}
-
-/** Fill thumbnail placeholders with images (or a PDF tile) once the files load. */
-export async function hydrateThumbs(root) {
-  for (const el of $$(".thumb[data-file]:not([data-ready])", root)) {
-    el.dataset.ready = "1";
-    const id = el.dataset.file;
-    const rec = await getFile(id).catch(() => null);
-    const btn = $(".thumb-open", el);
-    if (!rec) {
-      btn.textContent = "Missing";
-      continue;
-    }
-    if (rec.type === "application/pdf") btn.innerHTML = `<span class="pdf">PDF</span>`;
-    else btn.innerHTML = `<img alt="Receipt photo" src="${await fileURL(id)}">`;
-  }
-}
-
-export async function openFile(id) {
-  const rec = await getFile(id).catch(() => null);
-  if (!rec) return toast("That receipt is no longer on this device.");
-  const url = await fileURL(id);
-  if (rec.type === "application/pdf") {
-    openSheet(
-      `<div class="sheet-form"><h3>${esc(rec.name)}</h3><p class="help">PDF receipt saved on this device.</p>
-       <div class="actions"><div class="right"><button type="button" class="btn" data-close>Close</button><a class="btn primary" href="${url}" target="_blank" rel="noopener">Open PDF</a></div></div></div>`
-    );
-    return;
-  }
-  openSheet(
-    `<div class="sheet-form"><h3>Receipt</h3><img class="viewer" alt="Receipt photo" src="${url}">
-     <div class="actions"><div class="right"><button type="button" class="btn" data-close>Close</button></div></div></div>`
-  );
 }
 
 /* ---------------- task details ---------------- */
@@ -78,7 +35,7 @@ export function openTaskDetail(id) {
   const draw = () => {
     const t = state.tasks.get(id);
     if (!t) return closeSheet(sheet);
-    const s = statusOf(t);
+    const s = statusOf(t, todayISO(), soonDays());
     const jobs = [...t.log].reverse();
     const spent = t.log.reduce((n, e) => n + (e.cost || 0), 0);
     $(".sheet-body", sheet).innerHTML = `<div class="sheet-form">
@@ -86,17 +43,17 @@ export function openTaskDetail(id) {
         <span class="area-badge lg" data-area="${esc(t.area)}">${areaIcon(t.area)}</span>
         <div class="detail-title">
           <h3>${esc(t.name)}</h3>
-          <div class="meta"><span>${esc(t.area)}</span><span>${esc(describeSchedule(t))}</span>${s.snoozed ? "<span>snoozed</span>" : ""}</div>
+          <div class="meta"><span>${esc(t.area)}</span><span>${esc(describeSchedule(t))}</span></div>
         </div>
       </div>
       <div class="detail-status" data-status="${s.key}">
         <span class="due ${s.key}">${esc(s.key === "new" ? "No date yet" : s.label)}</span>
-        <span class="muted">${t.log.length ? `Last done ${esc(formatShort(t.log.at(-1).date))}` : "Never logged"}</span>
+        <span class="muted">${s.snoozed ? `Snoozed · <button type="button" class="link" data-do="unsnooze">Undo snooze</button>` : t.log.length ? `Last done ${esc(formatShort(t.log.at(-1).date))}` : "Never logged"}</span>
       </div>
       ${t.notes ? `<p class="notes-block">${esc(t.notes)}</p>` : ""}
       <div class="action-grid">
         <button type="button" class="tile primary" data-do="log">${icon.check}<span>Log a job</span></button>
-        <button type="button" class="tile" data-do="snooze" ${s.key === "new" ? "disabled" : ""}>${icon.snooze}<span>Snooze a week</span></button>
+        <button type="button" class="tile" data-do="snooze" ${s.key === "new" ? "disabled" : ""}>${icon.snooze}<span>Snooze</span></button>
         <button type="button" class="tile" data-do="cal" ${s.key === "new" ? "disabled" : ""}>${icon.calendar}<span>Add to calendar</span></button>
         <button type="button" class="tile" data-do="edit">${icon.edit}<span>Edit task</span></button>
       </div>
@@ -116,7 +73,7 @@ export function openTaskDetail(id) {
               </li>`
                 )
                 .join("")}</ul>`
-            : `<p class="help">No jobs logged yet. Tap “Log a job” to record when you did it, what it cost and the receipt.</p>`
+            : `<p class="help">No jobs logged yet. Tap “Log a job” to record when you did it, what it cost, and photos or receipts.</p>`
         }
       </div>
       <div class="actions"><div class="right"><button type="button" class="btn" data-close>Close</button></div></div>
@@ -129,11 +86,8 @@ export function openTaskDetail(id) {
     const t = state.tasks.get(id);
     if (b.dataset.do === "log") openJobSheet(id);
     if (b.dataset.do === "edit") openTaskForm(t);
-    if (b.dataset.do === "snooze") {
-      const snoozed = snooze(t, 7);
-      putTask(snoozed);
-      toast(`Snoozed to ${formatShort(snoozed.snoozedUntil)}.`, [{ label: "Undo", run: () => putTask(t) }]);
-    }
+    if (b.dataset.do === "snooze") openSnoozeSheet(id);
+    if (b.dataset.do === "unsnooze") putTask({ ...t, snoozedUntil: "" });
     if (b.dataset.do === "cal") exportCalendar([t], t.name);
     if (b.dataset.job) openJobSheet(id, b.dataset.job);
     if (b.dataset.openFile) openFile(b.dataset.openFile);
@@ -142,14 +96,39 @@ export function openTaskDetail(id) {
   off = onChange(draw);
 }
 
+/* ---------------- snooze ---------------- */
+export function openSnoozeSheet(id) {
+  const t = state.tasks.get(id);
+  if (!t) return;
+  const options = [[1, "1 day"], [3, "3 days"], [7, "1 week"], [14, "2 weeks"], [30, "1 month"]];
+  const sheet = openSheet(`<form class="sheet-form" id="snoozeForm">
+      <h3>Snooze “${esc(t.name)}”</h3>
+      <p class="help">Pushes the due date later. Logging the job clears the snooze.</p>
+      <div class="option-list">${options
+        .map(([d, label]) => `<button type="button" class="option" data-days="${d}"><span>${label}</span><span class="muted">${esc(formatShort(snooze(t, d).snoozedUntil))}</span></button>`)
+        .join("")}</div>
+      <div class="field"><label for="snDate">Or pick a date</label><input id="snDate" type="date" min="${addDays(todayISO(), 1)}"></div>
+      <div class="actions"><div class="right"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Snooze to date</button></div></div>
+    </form>`);
+  const apply = (until) => {
+    putTask({ ...t, snoozedUntil: until });
+    closeSheet(sheet);
+    toast(`Snoozed to ${formatShort(until)}.`, [{ label: "Undo", run: () => putTask(t) }]);
+  };
+  $$("[data-days]", sheet).forEach((b) => b.addEventListener("click", () => apply(snooze(t, Number(b.dataset.days)).snoozedUntil)));
+  $("#snoozeForm", sheet).addEventListener("submit", (e) => {
+    e.preventDefault();
+    const d = $("#snDate", sheet).value;
+    if (isValidISO(d) && diffDays(d, todayISO()) > 0) apply(d);
+  });
+}
+
 /* ---------------- log or edit a job ---------------- */
 export function openJobSheet(taskId, entryId = null, { prompt } = {}) {
   const t = state.tasks.get(taskId);
   if (!t) return;
   const entry = entryId ? t.log.find((e) => e.id === entryId) : null;
-  const added = []; // files saved during this sheet, removed again if cancelled
-  let files = entry ? [...entry.files] : [];
-  let saved = false;
+  let attach = null;
 
   const sheet = openSheet(
     `<form class="sheet-form" id="jobForm">
@@ -160,61 +139,24 @@ export function openJobSheet(taskId, entryId = null, { prompt } = {}) {
         <div class="field"><label for="jCost">Cost (${esc(cur())})</label><input id="jCost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" value="${entry?.cost ?? ""}"></div>
       </div>
       <div class="field"><label for="jNote">Notes</label><input id="jNote" maxlength="200" placeholder="Who did it, parts used, anything to remember" value="${esc(entry?.note || "")}"></div>
-      <div class="field">
-        <span class="label">Receipts</span>
-        <div class="thumbs" id="jThumbs"></div>
-        <label class="add-receipt" for="jFile">${icon.camera}<span>Add photo or PDF</span></label>
-        <input id="jFile" type="file" accept="image/*,application/pdf" multiple hidden>
-        <span class="help" id="jFileStatus" aria-live="polite"></span>
-      </div>
+      <div class="field" id="jFiles"></div>
       <div class="actions">
         ${entry ? `<button type="button" class="btn danger" id="jDelete">Delete job</button>` : ""}
         <div class="right"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div>
       </div>
     </form>`,
     null,
-    { onClose: () => !saved && added.forEach((f) => deleteFile(f)) }
+    { onClose: () => attach?.discard() }
   );
-
-  const drawThumbs = () => {
-    $("#jThumbs", sheet).innerHTML = thumbsHTML(files, { removable: true });
-    hydrateThumbs(sheet);
-  };
-  drawThumbs();
-
-  sheet.addEventListener("click", (e) => {
-    const b = e.target.closest("button");
-    if (b?.dataset.removeFile) {
-      files = files.filter((f) => f !== b.dataset.removeFile);
-      drawThumbs();
-    } else if (b?.dataset.openFile) openFile(b.dataset.openFile);
-  });
-
-  $("#jFile", sheet).addEventListener("change", async (e) => {
-    const status = $("#jFileStatus", sheet);
-    const picked = [...e.target.files];
-    e.target.value = "";
-    for (const file of picked) {
-      status.textContent = `Saving ${file.name || "receipt"}…`;
-      try {
-        const id = await addFile(file);
-        added.push(id);
-        files.push(id);
-        drawThumbs();
-        status.textContent = "";
-      } catch (err) {
-        status.textContent = err.message;
-      }
-    }
-  });
+  attach = attachmentField($("#jFiles", sheet), entry ? entry.files : [], { labels: ["receipt", "before", "after"] });
 
   const del = $("#jDelete", sheet);
   if (del)
     armButton(del, "Tap again to delete", () => {
       const before = state.tasks.get(taskId);
       putTask(removeJob(before, entry.id));
-      saved = true;
-      closeSheet();
+      attach.commit();
+      closeSheet(sheet);
       toast("Job deleted.", [{ label: "Undo", run: () => putTask(before) }]);
     });
 
@@ -225,10 +167,11 @@ export function openJobSheet(taskId, entryId = null, { prompt } = {}) {
     const costRaw = $("#jCost", sheet).value.trim();
     const cost = costRaw === "" ? null : Math.round(Math.max(0, Number(costRaw)) * 100) / 100;
     const note = $("#jNote", sheet).value.trim();
+    const files = attach.files();
     const current = state.tasks.get(taskId);
     putTask(entry ? updateJob(current, entry.id, { date, cost, note, files }) : logJob(current, { date, cost, note, files }));
-    saved = true;
-    closeSheet();
+    attach.commit();
+    closeSheet(sheet);
     if (!entry) toast(`Logged “${t.name}” for ${formatShort(date)}.`);
   });
 }
@@ -245,7 +188,7 @@ function repeatOptions(t) {
 export function openTaskForm(task) {
   const isNew = !task;
   const t = task || { name: "", area: "HVAC", schedule: "interval", intervalDays: 91, month: new Date().getMonth() + 1, notes: "", log: [] };
-  const names = new Set([...state.tasks.values()].map((x) => x.name));
+  const names = new Set(homeTasks().map((x) => x.name));
   const ideas = COMMON_TASKS.filter((i) => !names.has(i.name)).slice(0, 10);
 
   const sheet = openSheet(`<form id="taskForm" class="sheet-form">
@@ -311,11 +254,11 @@ export function openTaskForm(task) {
       month: Number(month.value),
       notes: $("#fNotes", sheet).value.trim(),
       sample: false,
-    });
+    }, t.homeId);
     const last = $("#fLast", sheet)?.value;
     if (isValidISO(last)) next = logJob(next, { date: last });
     putTask(next);
-    closeSheet();
+    closeSheet(sheet);
     if (isNew) toast(`Added “${name}”.`);
   });
   if (isNew) setTimeout(() => $("#fName", sheet).focus(), 30);
@@ -323,7 +266,7 @@ export function openTaskForm(task) {
 
 /* ---------------- starter list ---------------- */
 export function openStarterSheet() {
-  const names = new Set([...state.tasks.values()].map((x) => x.name));
+  const names = new Set(homeTasks().map((x) => x.name));
   const items = COMMON_TASKS.filter((i) => !names.has(i.name));
   const sheet = openSheet(`<form id="starterForm" class="sheet-form">
       <h3>Common tasks</h3>
@@ -339,12 +282,8 @@ export function openStarterSheet() {
   $("#starterForm", sheet).addEventListener("submit", (e) => {
     e.preventDefault();
     const picked = $$("input:checked", sheet).map((c) => c.value);
-    COMMON_TASKS.filter((i) => picked.includes(i.name)).forEach((i) => {
-      const t = normalizeTask({ ...i, id: newId() });
-      state.tasks.set(t.id, t);
-    });
-    commit();
-    closeSheet();
+    putTasks(COMMON_TASKS.filter((i) => picked.includes(i.name)).map((i) => normalizeTask({ ...i, id: newId() })));
+    closeSheet(sheet);
     if (picked.length) toast(`Added ${plural(picked.length, "task")}.`);
   });
 }
@@ -354,6 +293,6 @@ export function exportCalendar(tasks, label = "Home maintenance") {
   const { text, count } = buildCalendar(tasks);
   if (!count) return toast("Nothing to add yet. Set a last-done date first.");
   const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "home-maintenance";
-  download(new Blob([text], { type: "text/calendar;charset=utf-8" }), `${slug}.ics`);
+  saveFile(new File([text], `${slug}.ics`, { type: "text/calendar" }), { share: false });
   toast(`Calendar file ready with ${plural(count, "reminder")}. Open it to add to your calendar.`);
 }

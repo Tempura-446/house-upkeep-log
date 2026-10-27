@@ -1,15 +1,28 @@
-import { statusOf, todayISO, formatShort, describeSchedule, diffDays, totalCost } from "./schedule.js";
-import { AREAS, referencedFiles } from "./store.js";
+import { statusOf, todayISO, formatShort, describeSchedule, diffDays } from "./schedule.js";
+import { AREAS, referencedFiles, spendingByYear } from "./store.js";
 import { HOME_INFO_IDEAS } from "./starters.js";
-import { state, onChange, onSaveFailed, reload } from "./state.js";
+import { state, onChange, onSaveFailed, reload, homeTasks, homeInfoItems, currentHome, setLocal } from "./state.js";
 import { pruneFiles } from "./files.js";
 import { markDone, openTaskDetail, openJobSheet, openTaskForm, openStarterSheet } from "./task-sheets.js";
-import { openHomeForm, openSettings } from "./other-sheets.js";
+import { openHomeForm, openSettings, openHomesSheet, openBackupSheet } from "./other-sheets.js";
 import { $, $$, esc, money, plural, toast, closeSheet, sheetOpen } from "./ui.js";
 import { icon, areaIcon } from "./icons.js";
 
 const VIEWS = { tasks: "Tasks", history: "History", home: "Home info" };
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const DAY = 86400000;
+let historyYear = null;
+
+/** Modules that change what counts as "backed up" (sync) register here. */
+export const hooks = { isBackedUp: () => false };
+
+/* ---------------- search ---------------- */
+const norm = (s) => String(s || "").toLowerCase();
+const matches = (...fields) => {
+  const q = norm(state.query).trim();
+  if (!q) return true;
+  return q.split(/\s+/).every((word) => fields.some((f) => norm(f).includes(word)));
+};
 
 /* ---------------- tasks ---------------- */
 const GROUPS = [
@@ -22,7 +35,7 @@ const GROUPS = [
 const areaBadge = (area) => `<span class="area-badge" data-area="${esc(area)}">${areaIcon(area)}</span>`;
 
 function taskRow({ t, s }) {
-  const receipts = t.log.reduce((n, e) => n + e.files.length, 0);
+  const files = t.log.reduce((n, e) => n + e.files.length, 0);
   const checkAct = s.key === "new" ? "setdate" : "done";
   const checkLabel = s.key === "new" ? `Set when you last did ${t.name}` : `Mark ${t.name} done today`;
   return `<li class="row" data-status="${s.key}">
@@ -31,15 +44,28 @@ function taskRow({ t, s }) {
       <span class="name">${esc(t.name)}${t.sample ? ' <span class="tag">example</span>' : ""}</span>
       <span class="sub">${areaIcon(t.area, "ic sub-ic")}<span>${esc(t.area)} · ${esc(describeSchedule(t))}</span>${
         s.snoozed ? `<span class="tag">${icon.snooze}snoozed</span>` : ""
-      }${receipts ? `<span class="tag">${icon.receipt}${receipts}</span>` : ""}</span>
+      }${files ? `<span class="tag">${icon.receipt}${files}</span>` : ""}</span>
     </button>
     <span class="due ${s.key}">${esc(s.key === "new" ? "No date yet" : s.label)}</span>
   </li>`;
 }
 
+function backupBanner(all) {
+  if (!all.length || hooks.isBackedUp()) return "";
+  const { lastBackupAt, backupNudgeAt, firstUseAt } = state.local;
+  const since = Date.now() - (lastBackupAt || firstUseAt || Date.now());
+  const due = lastBackupAt ? since > 30 * DAY : since > 3 * DAY;
+  if (!due || Date.now() - backupNudgeAt < 14 * DAY) return "";
+  return `<div class="banner">
+    <span class="banner-ic">${icon.backup}</span>
+    <div><b>${lastBackupAt ? "Time for a backup" : "Back up your log"}</b><small>Your log lives only on this device. Save a copy somewhere safe${lastBackupAt ? "" : " in case your phone is lost or reset"}.</small></div>
+    <div class="banner-actions"><button class="btn primary" data-act="backup">Back up</button><button class="btn" data-act="nudge-later">Later</button></div>
+  </div>`;
+}
+
 function summaryHTML(all, today) {
   if (!all.length) return "";
-  const rows = all.map((t) => ({ t, s: statusOf(t, today) }));
+  const rows = all.map((t) => ({ t, s: statusOf(t, today, state.prefs.soonDays) }));
   const count = (k) => rows.filter((r) => r.s.key === k).length;
   const urgent = rows.filter((r) => r.s.key === "late" || r.s.key === "soon").sort((a, b) => a.s.days - b.s.days)[0];
   const upcoming = rows.filter((r) => r.s.key === "ok").sort((a, b) => a.s.days - b.s.days)[0];
@@ -55,10 +81,10 @@ function summaryHTML(all, today) {
       </div>`
     : `<div class="hero calm">
         <div class="hero-top"><span class="hero-label">All caught up</span></div>
-        <p>${upcoming ? `Nothing due in the next two weeks. Next up is <b>${esc(upcoming.t.name)}</b>, ${esc(upcoming.s.label.toLowerCase())}.` : "Set a date on your tasks to see what's next."}</p>
+        <p>${upcoming ? `Nothing due in the next ${plural(state.prefs.soonDays, "day")}. Next up is <b>${esc(upcoming.t.name)}</b>, ${esc(upcoming.s.label.toLowerCase())}.` : "Set a date on your tasks to see what's next."}</p>
       </div>`;
 
-  return `<div class="stats">
+  return `${backupBanner(all)}<div class="stats">
       <div class="stat" data-status="late"><b>${count("late")}</b><span>Overdue</span></div>
       <div class="stat" data-status="soon"><b>${count("soon")}</b><span>Coming up</span></div>
       <div class="stat" data-status="ok"><b>${count("ok")}</b><span>On track</span></div>
@@ -68,16 +94,18 @@ function summaryHTML(all, today) {
 function emptyState(title, text, actions = "") {
   return `<div class="empty"><span class="empty-ic">${icon.home}</span><b>${title}</b><span>${text}</span>${actions}</div>`;
 }
+const noResults = () => emptyState(`No matches for “${esc(state.query)}”`, "Try a different word.");
 
 function renderTasks(all, today) {
   if (!all.length)
     return emptyState(
-      "Let's set up your home",
+      state.homes.size > 1 ? `Nothing set up for ${esc(currentHome().name)} yet` : "Let's set up your home",
       "Pick from common chores or add your own. Each task tells you when it's next due.",
       `<div class="empty-actions"><button class="btn primary" data-act="starters">Choose common tasks</button><button class="btn" data-act="add">Add my own</button></div>`
     );
-  const shown = all.filter((t) => state.area === "All" || t.area === state.area);
-  const rows = shown.map((t) => ({ t, s: statusOf(t, today) })).sort((a, b) => a.s.days - b.s.days || a.t.name.localeCompare(b.t.name));
+  const shown = all.filter((t) => (state.area === "All" || t.area === state.area) && matches(t.name, t.area, t.notes, describeSchedule(t)));
+  if (!shown.length && state.query) return noResults();
+  const rows = shown.map((t) => ({ t, s: statusOf(t, today, state.prefs.soonDays) })).sort((a, b) => a.s.days - b.s.days || a.t.name.localeCompare(b.t.name));
   return (
     GROUPS.map(([key, title, hint]) => {
       const g = rows.filter((r) => r.s.key === key);
@@ -88,20 +116,45 @@ function renderTasks(all, today) {
 }
 
 /* ---------------- history ---------------- */
+function spendingCard(shown) {
+  const years = spendingByYear(shown);
+  if (!years.length) return "";
+  if (!years.some((y) => y.year === historyYear)) historyYear = years[0].year;
+  const y = years.find((x) => x.year === historyYear);
+  const max = Math.max(...y.areas.map((a) => a.total));
+  const cur = state.prefs.currency;
+  return `<section class="spend-card" aria-label="Spending">
+    <div class="spend-head">
+      <div><span class="hero-label">Spent in ${y.year}</span><b class="spend-total">${esc(money(y.total, cur))}</b></div>
+      ${years.length > 1 ? `<div class="segmented small" role="group" aria-label="Year">${years.slice(0, 4).map((x) => `<button data-year="${x.year}" aria-pressed="${x.year === y.year}">${x.year}</button>`).join("")}</div>` : ""}
+    </div>
+    <ul class="bars">${y.areas
+      .map(
+        (a) => `<li data-area="${esc(a.area)}">
+          <span class="bar-label">${areaIcon(a.area)}${esc(a.area)}</span>
+          <span class="bar-track"><span class="bar-fill" style="width:${Math.max(4, (a.total / max) * 100).toFixed(1)}%"></span></span>
+          <span class="bar-value">${esc(money(a.total, cur))}</span>
+        </li>`
+      )
+      .join("")}</ul>
+  </section>`;
+}
+
 function renderHistory(all, today) {
-  const shown = all.filter((t) => state.area === "All" || t.area === state.area);
+  const inArea = all.filter((t) => state.area === "All" || t.area === state.area);
   const jobs = [];
-  shown.forEach((t) => t.log.forEach((e) => jobs.push({ t, e })));
-  if (!jobs.length) return emptyState("Nothing logged yet", "When you mark a task done, it shows up here with its cost and receipts.");
+  inArea.forEach((t) => t.log.forEach((e) => matches(t.name, t.area, e.note, e.date) && jobs.push({ t, e })));
+  if (!jobs.length) return state.query ? noResults() : emptyState("Nothing logged yet", "When you mark a task done, it shows up here with its cost, photos and receipts.");
   jobs.sort((a, b) => b.e.date.localeCompare(a.e.date));
   const years = [...new Set(jobs.map((j) => j.e.date.slice(0, 4)))];
-  const cur = state.settings.currency;
-  return years
-    .map((y) => {
-      const items = jobs.filter((j) => j.e.date.startsWith(y));
-      const spent = totalCost(shown, Number(y));
-      return `<section class="group">
-        <div class="year-head"><h2>${y}<small>${plural(items.length, "job")}</small></h2>${spent ? `<span class="year-spent">${esc(money(spent, cur))}<small>spent</small></span>` : ""}</div>
+  const cur = state.prefs.currency;
+  return (
+    (state.query ? "" : spendingCard(inArea)) +
+    years
+      .map((y) => {
+        const items = jobs.filter((j) => j.e.date.startsWith(y));
+        return `<section class="group">
+        <h2>${y}<small>${plural(items.length, "job")}</small></h2>
         <ul class="list">${items
           .slice(0, 300)
           .map(
@@ -113,8 +166,9 @@ function renderHistory(all, today) {
           )
           .join("")}</ul>
       </section>`;
-    })
-    .join("");
+      })
+      .join("")
+  );
 }
 
 /* ---------------- home info ---------------- */
@@ -127,39 +181,52 @@ function warrantyBadge(iso, today) {
 }
 
 function renderHome(today) {
-  const items = [...state.home.values()].sort((a, b) => a.title.localeCompare(b.title));
-  const used = new Set(items.map((i) => i.title));
+  const all = homeInfoItems().sort((a, b) => a.title.localeCompare(b.title));
+  const items = all.filter((h) => matches(h.title, h.details));
+  const used = new Set(all.map((i) => i.title));
   const ideas = HOME_INFO_IDEAS.filter((i) => !used.has(i[0]));
   const ideaChips = ideas.length
     ? `<div class="suggest">${ideas.map((i) => `<button class="chip" data-act="homeidea" data-idea="${esc(i[0])}">${icon.plus}${esc(i[0])}</button>`).join("")}</div>`
     : "";
-  if (!items.length)
+  if (!all.length)
     return emptyState(
       "Your home's details, in one place",
-      "Filter sizes, model numbers, warranty dates and who to call, ready when you're in the middle of a job.",
+      "Filter sizes, model numbers, manuals, warranty dates and who to call, ready when you're in the middle of a job.",
       ideaChips
     );
+  if (!items.length) return noResults();
   return `<ul class="cards">${items
     .map(
       (h) => `<li><button class="card" data-act="home" data-id="${esc(h.id)}">
         <span class="card-head"><span class="name">${esc(h.title)}</span>${icon.chevron}</span>
         ${h.details ? `<span class="details">${esc(h.details)}</span>` : ""}
-        ${warrantyBadge(h.warrantyUntil, today)}
+        <span class="card-foot">${warrantyBadge(h.warrantyUntil, today)}${h.files?.length ? `<span class="tag">${icon.receipt}${plural(h.files.length, "file")}</span>` : ""}</span>
       </button></li>`
     )
-    .join("")}</ul>${ideaChips ? `<div class="more-ideas"><h2>Add more</h2>${ideaChips}</div>` : ""}`;
+    .join("")}</ul>${ideaChips && !state.query ? `<div class="more-ideas"><h2>Add more</h2>${ideaChips}</div>` : ""}`;
 }
 
 /* ---------------- shell ---------------- */
 function render() {
   const today = todayISO();
-  $("#today").textContent = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const date = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  $("#today").innerHTML =
+    state.homes.size > 1
+      ? `<button class="home-switch" data-act="homes">${icon.home}<span>${esc(currentHome().name)}</span>${icon.down}</button>`
+      : esc(date);
   $("#pageTitle").textContent = VIEWS[state.view];
-  const all = [...state.tasks.values()];
+  const all = homeTasks();
 
-  $("#summary").innerHTML = state.view === "tasks" ? summaryHTML(all, today) : "";
+  $("#summary").innerHTML = state.view === "tasks" && !state.query ? summaryHTML(all, today) : "";
   $("#addBtn").setAttribute("aria-label", state.view === "home" ? "Add home info" : "Add task");
   $$("[data-view]").forEach((b) => b.setAttribute("aria-pressed", state.view === b.dataset.view));
+
+  const hasContent = state.view === "home" ? homeInfoItems().length > 0 : all.length > 0;
+  $("#searchBar").hidden = !hasContent;
+  const input = $("#search");
+  input.placeholder = state.view === "home" ? "Search Home info" : state.view === "history" ? "Search history" : "Search tasks";
+  if (input.value !== state.query) input.value = state.query;
+  $("#clearSearch").hidden = !state.query;
 
   const used = AREAS.filter((a) => all.some((t) => t.area === a));
   if (state.area !== "All" && !used.includes(state.area)) state.area = "All";
@@ -188,8 +255,13 @@ document.addEventListener("click", (e) => {
     state.area = b.dataset.area;
     render();
   }
+  if (b.dataset.year) {
+    historyYear = Number(b.dataset.year);
+    render();
+  }
   if (b.dataset.view && b.dataset.view !== state.view) {
     state.view = b.dataset.view;
+    state.query = "";
     render();
     window.scrollTo({ top: 0 });
   }
@@ -202,14 +274,38 @@ document.addEventListener("click", (e) => {
   if (act === "starters") openStarterSheet();
   if (act === "home") openHomeForm(state.home.get(id));
   if (act === "homeidea") openHomeForm(null, HOME_INFO_IDEAS.find((i) => i[0] === b.dataset.idea));
+  if (act === "homes") openHomesSheet();
+  if (act === "backup") openBackupSheet();
+  if (act === "nudge-later") {
+    setLocal({ backupNudgeAt: Date.now() });
+    toast("OK. I'll remind you again in two weeks.");
+  }
+});
+
+$("#search").addEventListener("input", (e) => {
+  state.query = e.target.value;
+  render();
+});
+$("#clearSearch").addEventListener("click", () => {
+  state.query = "";
+  render();
+  $("#search").focus();
 });
 
 $("#settingsBtn").innerHTML = icon.settings;
 $("#addBtn").innerHTML = icon.plus;
+$("#searchIcon").innerHTML = icon.search;
+$("#clearSearch").innerHTML = icon.close;
 $$("[data-icon]").forEach((el) => (el.innerHTML = icon[el.dataset.icon]));
 $("#addBtn").addEventListener("click", () => (state.view === "home" ? openHomeForm() : openTaskForm()));
 $("#settingsBtn").addEventListener("click", openSettings);
-document.addEventListener("keydown", (e) => e.key === "Escape" && sheetOpen() && closeSheet());
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && sheetOpen()) closeSheet();
+  else if (e.key === "/" && !sheetOpen() && document.activeElement?.tagName !== "INPUT" && !$("#searchBar").hidden) {
+    e.preventDefault();
+    $("#search").focus();
+  }
+});
 // Due dates move at midnight: re-render when the app comes back to the foreground.
 document.addEventListener("visibilitychange", () => !document.hidden && render());
 // Keep two open copies of the app in step.
@@ -222,8 +318,11 @@ onChange(render);
 onSaveFailed(() => toast("Couldn't save on this device. Your browser may be in private mode or out of space."));
 render();
 
-// Tidy up receipt files that no longer belong to any job (e.g. deleted jobs from an earlier visit).
-pruneFiles(referencedFiles([...state.tasks.values()])).catch(() => {});
+// Tidy up attachments that no longer belong to any job or Home info item.
+pruneFiles(referencedFiles([...state.tasks.values()], [...state.home.values()])).catch(() => {});
+
+// Optional features that load after first paint.
+import("./cloud.js").then((m) => m.start?.({ hooks, render })).catch(() => {});
 
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
   navigator.serviceWorker.register("./sw.js").catch(() => {});

@@ -91,6 +91,33 @@ export function toast(msg, actions = []) {
   toastTimer = setTimeout(() => (host.innerHTML = ""), actions.length ? 7000 : 4500);
 }
 
+/** True when this device can hand files to the system share sheet (Save to Files, Google Drive, email…). */
+export const canShareFiles = (file) => {
+  try {
+    return Boolean(navigator.canShare?.({ files: [file] }));
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Give the user a file. With share: true and a share sheet available, opens it (must be called from a tap);
+ * otherwise downloads. Resolves "shared", "downloaded" or "cancelled".
+ */
+export async function saveFile(file, { share = true, title } = {}) {
+  if (share && canShareFiles(file)) {
+    try {
+      await navigator.share({ files: [file], title: title || file.name });
+      return "shared";
+    } catch (err) {
+      if (err?.name === "AbortError") return "cancelled";
+      // Some browsers refuse sharing after async work; fall back to a download.
+    }
+  }
+  download(file, file.name);
+  return "downloaded";
+}
+
 /** Offer a generated file to the user. */
 export function download(blob, filename) {
   const a = document.createElement("a");

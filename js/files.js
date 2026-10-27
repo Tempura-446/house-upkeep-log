@@ -52,21 +52,28 @@ async function shrinkImage(file) {
 }
 
 /** Save a picked file. Returns its id. Throws an Error with a readable message on failure. */
-export async function addFile(file) {
-  if (!file.type.startsWith("image/") && file.type !== "application/pdf") throw new Error("Receipts can be photos or PDFs.");
+export async function addFile(file, label = "receipt") {
+  if (!file.type.startsWith("image/") && file.type !== "application/pdf") throw new Error("Attachments can be photos or PDFs.");
   const blob = await shrinkImage(file);
   if (blob.size > MAX_BYTES) throw new Error("That file is over 15 MB. Try a smaller photo or PDF.");
   const id = newFileId();
   const name = (file.name || "receipt").slice(0, 120);
   try {
-    await tx("readwrite", (s) => s.put({ id, name, type: blob.type || file.type, blob, created: Date.now() }));
+    await tx("readwrite", (s) => s.put({ id, name, type: blob.type || file.type, label, blob, created: Date.now() }));
   } catch {
-    throw new Error("Couldn't save the receipt. Your phone may be low on storage.");
+    throw new Error("Couldn't save that file. Your phone may be low on storage.");
   }
   return id;
 }
 
 export const getFile = (id) => tx("readonly", (s) => s.get(id));
+/** Store a file record as-is (used by restore and sync). */
+export const putFileRecord = (rec) => tx("readwrite", (s) => s.put(rec));
+
+export async function setFileLabel(id, label) {
+  const rec = await getFile(id);
+  if (rec) await putFileRecord({ ...rec, label });
+}
 export const deleteFile = (id) => tx("readwrite", (s) => s.delete(id));
 export const allFileIds = () => tx("readonly", (s) => s.getAllKeys());
 
@@ -102,7 +109,7 @@ export async function exportFiles(ids) {
   const out = [];
   for (const id of ids) {
     const rec = await getFile(id);
-    if (rec) out.push({ id, name: rec.name, type: rec.type, data: await blobToBase64(rec.blob) });
+    if (rec) out.push({ id, name: rec.name, type: rec.type, label: rec.label || "receipt", data: await blobToBase64(rec.blob) });
   }
   return out;
 }
@@ -110,7 +117,7 @@ export async function exportFiles(ids) {
 export async function importFiles(list) {
   for (const f of list) {
     const blob = base64ToBlob(f.data, f.type);
-    await tx("readwrite", (s) => s.put({ id: f.id, name: f.name || "receipt", type: f.type, blob, created: Date.now() }));
+    await tx("readwrite", (s) => s.put({ id: f.id, name: f.name || "receipt", type: f.type, label: f.label || "receipt", blob, created: Date.now() }));
   }
 }
 

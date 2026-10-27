@@ -1,6 +1,6 @@
 // Offline support: cache the app shell, serve it cache-first, refresh in the background.
 // Bump VERSION whenever you change any file in SHELL so phones pick up the new version.
-const VERSION = "v3";
+const VERSION = "v4";
 const CACHE = `house-upkeep-${VERSION}`;
 const SHELL = [
   "./",
@@ -17,6 +17,8 @@ const SHELL = [
   "js/task-sheets.js",
   "js/other-sheets.js",
   "js/icons.js",
+  "js/attachments.js",
+  "js/cloud.js",
   "manifest.webmanifest",
   "icons/icon.svg",
   "icons/icon-192.png",

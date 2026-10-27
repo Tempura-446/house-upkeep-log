@@ -4,3 +4,6 @@ node_modules/
 
 # Personal backups exported from the app contain your tasks: never commit them
 house-upkeep-backup-*.json
+test-results/
+playwright-report/
+house-upkeep-jobs-*.csv

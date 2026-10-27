@@ -91,7 +91,7 @@ export function nextDue(task, today = todayISO()) {
  * key: "new" (needs a first date), "late" (overdue or due today), "soon", "ok".
  * days: days until due (negative when late), used for sorting.
  */
-export function statusOf(task, today = todayISO()) {
+export function statusOf(task, today = todayISO(), soonDays = SOON_DAYS) {
   const due = nextDue(task, today);
   if (!due) return { key: "new", days: -Infinity, due: null, snoozed: false, label: "Set last date" };
   const snoozed = due === task.snoozedUntil;
@@ -103,11 +103,11 @@ export function statusOf(task, today = todayISO()) {
   if (task.schedule === "seasonal" && !snoozed) {
     const m = Number(task.month);
     const inSeason = today >= monthStart(yearOf(due), m);
-    if (inSeason || d <= SOON_DAYS) return { key: "soon", days: d, due, snoozed, label: `Due by ${formatShort(due, today)}` };
+    if (inSeason || d <= soonDays) return { key: "soon", days: d, due, snoozed, label: `Due by ${formatShort(due, today)}` };
     const sameYear = yearOf(due) === yearOf(today);
     return { key: "ok", days: d, due, snoozed, label: `Due in ${MON[m - 1]}${sameYear ? "" : " " + yearOf(due)}` };
   }
-  if (d <= SOON_DAYS) return { key: "soon", days: d, due, snoozed, label: `Due in ${plural(d, "day")}` };
+  if (d <= soonDays) return { key: "soon", days: d, due, snoozed, label: `Due in ${plural(d, "day")}` };
   return { key: "ok", days: d, due, snoozed, label: `Due ${formatShort(due, today)}` };
 }
 
