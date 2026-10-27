@@ -1,6 +1,6 @@
 // Offline support: cache the app shell, serve it cache-first, refresh in the background.
 // Bump VERSION whenever you change any file in SHELL so phones pick up the new version.
-const VERSION = "v4";
+const VERSION = "v5";
 const CACHE = `house-upkeep-${VERSION}`;
 const SHELL = [
   "./",
@@ -19,6 +19,8 @@ const SHELL = [
   "js/icons.js",
   "js/attachments.js",
   "js/cloud.js",
+  "js/config.js",
+  "js/sync-core.js",
   "manifest.webmanifest",
   "icons/icon.svg",
   "icons/icon-192.png",
@@ -57,6 +59,36 @@ self.addEventListener("fetch", (event) => {
         })
         .catch(() => cached || (req.mode === "navigate" ? cache.match("index.html") : undefined));
       return cached || network;
+    })
+  );
+});
+
+// Reminder notifications sent by the daily reminder job.
+self.addEventListener("push", (event) => {
+  let msg = {};
+  try {
+    msg = event.data ? event.data.json() : {};
+  } catch {
+    msg = { body: event.data?.text() };
+  }
+  event.waitUntil(
+    self.registration.showNotification(msg.title || "Home upkeep reminder", {
+      body: msg.body || "Something in your home is due.",
+      tag: msg.tag || "upkeep",
+      icon: "icons/icon-192.png",
+      badge: "icons/icon-192.png",
+      data: { url: msg.url || "./" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || "./", self.registration.scope).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      const open = wins.find((w) => w.url.startsWith(self.registration.scope));
+      return open ? open.focus() : self.clients.openWindow(target);
     })
   );
 });

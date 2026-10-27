@@ -536,3 +536,16 @@ body:has(.scrim) .toast { bottom: auto; top: calc(var(--safe-t) + 12px); }
 #extraSettings { display: flex; flex-direction: column; gap: 10px; }
 .btn.big { min-height: 54px; font-size: 16px; }
 .link { border: 0; background: none; padding: 0; color: var(--accent); font-weight: 700; font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---------- cloud sync & reminders ---------- */
+.cloud-box { display: flex; flex-direction: column; gap: 12px; background: var(--accent-soft); border-radius: var(--r-lg); padding: 14px 16px; }
+.cloud-box .setting { border-top-color: color-mix(in srgb, var(--accent) 18%, transparent); padding-bottom: 0; }
+.cloud-box .inline-add input, .cloud-box .short-select { background: var(--surface); }
+.cloud-head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; }
+.cloud-head > .ic { width: 40px; height: 40px; padding: 9px; border-radius: 12px; background: var(--surface); color: var(--accent); }
+.cloud-head b { display: block; overflow-wrap: anywhere; }
+.cloud-head small { display: block; color: var(--muted); font-size: 13.5px; }
+.cloud-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.cloud-actions .btn { background: var(--surface); }
+.cloud-box .link { align-self: flex-start; }
+.empty .link { margin-top: 2px; }

@@ -14,7 +14,7 @@ const DAY = 86400000;
 let historyYear = null;
 
 /** Modules that change what counts as "backed up" (sync) register here. */
-export const hooks = { isBackedUp: () => false };
+export const hooks = { isBackedUp: () => false, canSignIn: () => false };
 
 /* ---------------- search ---------------- */
 const norm = (s) => String(s || "").toLowerCase();
@@ -101,7 +101,9 @@ function renderTasks(all, today) {
     return emptyState(
       state.homes.size > 1 ? `Nothing set up for ${esc(currentHome().name)} yet` : "Let's set up your home",
       "Pick from common chores or add your own. Each task tells you when it's next due.",
-      `<div class="empty-actions"><button class="btn primary" data-act="starters">Choose common tasks</button><button class="btn" data-act="add">Add my own</button></div>`
+      `<div class="empty-actions"><button class="btn primary" data-act="starters">Choose common tasks</button><button class="btn" data-act="add">Add my own</button></div>${
+        hooks.canSignIn() && state.homes.size < 2 ? `<button class="link" data-act="signin">I use the app on another device</button>` : ""
+      }`
     );
   const shown = all.filter((t) => (state.area === "All" || t.area === state.area) && matches(t.name, t.area, t.notes, describeSchedule(t)));
   if (!shown.length && state.query) return noResults();
@@ -276,6 +278,10 @@ document.addEventListener("click", (e) => {
   if (act === "homeidea") openHomeForm(null, HOME_INFO_IDEAS.find((i) => i[0] === b.dataset.idea));
   if (act === "homes") openHomesSheet();
   if (act === "backup") openBackupSheet();
+  if (act === "signin") {
+    openSettings();
+    setTimeout(() => $("#cloudEmail")?.focus(), 60);
+  }
   if (act === "nudge-later") {
     setLocal({ backupNudgeAt: Date.now() });
     toast("OK. I'll remind you again in two weeks.");

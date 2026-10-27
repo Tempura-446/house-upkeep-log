@@ -25,7 +25,7 @@ function tx(mode, fn) {
       new Promise((resolve, reject) => {
         const t = d.transaction(STORE, mode);
         const result = fn(t.objectStore(STORE));
-        t.oncomplete = () => resolve(result?.result ?? result);
+        t.oncomplete = () => resolve(result instanceof IDBRequest ? result.result : result);
         t.onerror = () => reject(t.error);
         t.onabort = () => reject(t.error || new Error("Storage was full or unavailable."));
       })
@@ -72,7 +72,9 @@ export const putFileRecord = (rec) => tx("readwrite", (s) => s.put(rec));
 
 export async function setFileLabel(id, label) {
   const rec = await getFile(id);
-  if (rec) await putFileRecord({ ...rec, label });
+  if (!rec) return;
+  await putFileRecord({ ...rec, label, labelAt: Date.now() });
+  window.dispatchEvent(new CustomEvent("file-label", { detail: { id, label } }));
 }
 export const deleteFile = (id) => tx("readwrite", (s) => s.delete(id));
 export const allFileIds = () => tx("readonly", (s) => s.getAllKeys());

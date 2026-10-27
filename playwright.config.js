@@ -13,11 +13,19 @@ export default defineConfig({
     acceptDownloads: true,
     trace: "retain-on-failure",
   },
-  webServer: {
-    command: "python3 -m http.server 4173",
-    url: "http://localhost:4173",
-    reuseExistingServer: !process.env.CI,
-    stdout: "ignore",
-    stderr: "ignore",
-  },
+  webServer: [
+    {
+      command: "python3 -m http.server 4173",
+      url: "http://localhost:4173",
+      reuseExistingServer: !process.env.CI,
+      stdout: "ignore",
+      stderr: "ignore",
+    },
+    {
+      // Stand-in for Supabase, used by the sync tests.
+      command: "node e2e/fake-supabase.mjs",
+      port: 5998,
+      reuseExistingServer: !process.env.CI,
+    },
+  ],
 });
