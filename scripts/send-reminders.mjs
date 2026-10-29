@@ -19,8 +19,9 @@ if (!CLOUD.supabaseUrl || !CLOUD.vapidPublicKey) {
   process.exit(0);
 }
 if (!key || !vapidPrivate) {
-  console.error("Missing SUPABASE_SERVICE_ROLE_KEY or VAPID_PRIVATE_KEY secret.");
-  process.exit(1);
+  // Not set up yet: skip quietly instead of failing (a failed run emails the owner every hour).
+  console.log("::notice::Reminders are off until the SUPABASE_SERVICE_ROLE_KEY and VAPID_PRIVATE_KEY secrets are added.");
+  process.exit(0);
 }
 
 webpush.setVapidDetails(GITHUB_SERVER_URL && GITHUB_REPOSITORY ? `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}` : "https://github.com", CLOUD.vapidPublicKey, vapidPrivate);
