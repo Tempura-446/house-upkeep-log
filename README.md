@@ -83,4 +83,4 @@ Version 3 (see the comment at the top of `js/store.js`) adds `homes`, a `homeId`
 
 ## Ideas for next steps
 
-- Cloud sync across devices and push notifications (in progress)
+- Push notifications for due tasks (the reminder job was removed; calendar reminders cover this for now)

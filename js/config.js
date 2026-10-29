@@ -4,5 +4,5 @@
 export const CLOUD = {
   supabaseUrl: "https://vqiuvmasnooljalqqfom.supabase.co",
   supabaseAnonKey: "sb_publishable_zXF1Jho0n1HIEspZRtc6jA_0P4VyKmV",
-  vapidPublicKey: "BNXTl9saoDwALSBEgXmBGlyXEDxK5sTzOu_aJDFtwWRa1y1ie8fnYyCR0Hj4N5v2EY7ijt_yVhR4PSuJznOrdm4",
+  vapidPublicKey: "", // push reminders are turned off
 };

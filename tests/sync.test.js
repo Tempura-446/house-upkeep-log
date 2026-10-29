@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { rowsToPush, mergeRows, newestStamp } from "../js/sync-core.js";
-import { buildReminder, localNow } from "../js/reminders-core.js";
 import { normalizeData } from "../js/store.js";
 
 const base = () =>
@@ -63,39 +62,4 @@ test("merging the same rows twice changes nothing the second time", () => {
   const once = mergeRows(base(), rows);
   const twice = mergeRows(once.data, rows);
   assert.equal(twice.changed, false);
-});
-
-/* ---------------- reminders ---------------- */
-const TODAY = "2026-10-27";
-const task = (id, name, intervalDays, lastDone, homeId = "home") => ({ id, homeId, name, schedule: "interval", intervalDays, log: lastDone ? [{ id: "j" + id, date: lastDone }] : [] });
-
-test("reminder for tasks due today or tomorrow", () => {
-  const r = buildReminder({ homes: [{ id: "home", name: "My home" }], tasks: [task("a", "Clean gutters", 30, "2026-09-27"), task("b", "Test detectors", 30, "2026-09-28"), task("c", "Later", 90, "2026-10-01")], prefs: {} }, TODAY);
-  assert.equal(r.body, "Clean gutters is due today · Test detectors is due tomorrow");
-  assert.equal(r.title, "2 home upkeep tasks need attention");
-  assert.equal(r.nag, false);
-});
-
-test("overdue tasks remind at most every 3 days; nothing due means no reminder", () => {
-  const data = { homes: [], tasks: [task("a", "Flush water heater", 365, "2025-10-01"), task("b", "Never dated", 30, null)], prefs: {} };
-  assert.match(buildReminder(data, TODAY).body, /Flush water heater is 26 days late/);
-  assert.equal(buildReminder(data, TODAY, "2026-10-25"), null);
-  assert.ok(buildReminder(data, TODAY, "2026-10-24"));
-  assert.equal(buildReminder({ homes: [], tasks: [task("c", "Later", 90, "2026-10-20")], prefs: {} }, TODAY), null);
-});
-
-test("reminders name the home when there are several, and combine due + overdue", () => {
-  const data = {
-    homes: [{ id: "home", name: "House" }, { id: "p2", name: "Cabin" }],
-    tasks: [task("a", "Clean gutters", 30, "2026-09-27"), task("b", "Drain pipes", 30, "2026-08-01", "p2"), task("c", "Check roof", 30, "2026-08-02", "p2")],
-    prefs: {},
-  };
-  assert.equal(buildReminder(data, TODAY).body, "Clean gutters (House) is due today · 2 more overdue");
-});
-
-test("localNow converts to the device's time zone", () => {
-  const at = new Date("2026-10-27T13:30:00Z");
-  assert.deepEqual(localNow("America/New_York", at), { date: "2026-10-27", hour: 9 });
-  assert.deepEqual(localNow("Asia/Tokyo", at), { date: "2026-10-27", hour: 22 });
-  assert.deepEqual(localNow("Not/AZone", at), { date: "2026-10-27", hour: 13 });
 });

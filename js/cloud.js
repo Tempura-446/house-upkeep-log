@@ -341,7 +341,7 @@ function settingsSection(container, sheet) {
   const draw = async () => {
     if (!box.isConnected) return (redrawSettings = null);
     if (!signedIn()) {
-      const intro = `<div class="cloud-head">${icon.cloud}<div><b>Sync & cloud backup</b><small>Sign in to keep your log safe and use it on more than one device. Also turns on reminder notifications.</small></div></div>`;
+      const intro = `<div class="cloud-head">${icon.cloud}<div><b>Sync & cloud backup</b><small>Sign in to keep your log safe and use it on more than one device.</small></div></div>`;
       const emailField = `<div class="field"><label for="cloudEmail">Email</label><input id="cloudEmail" type="email" required autocomplete="email" placeholder="you@example.com" value="${esc(email)}"></div>`;
       let body = "";
       if (mode === "confirm") {
